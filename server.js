@@ -971,7 +971,10 @@ app.post('/api/projects/:projectId/deploy', async (req, res) => {
         
         console.log('Ejecutando deploy:', deployCommand);
         
-        const { stdout, stderr } = await execPromise(deployCommand, { timeout: 300000 }); // 5 minutos timeout
+        const { stdout, stderr } = await execPromise(deployCommand, { 
+            timeout: 300000, // 5 minutos timeout
+            maxBuffer: 1024 * 1024 * 50 // 50MB buffer para manejar output largo
+        });
         
         // Detectar si se ejecutó auto-cierre
         const autoClosed = stdout.includes('Ejecutando cierre automático') || 
@@ -1002,13 +1005,33 @@ app.post('/api/projects/:projectId/deploy', async (req, res) => {
         res.json(result);
     } catch (error) {
         console.error('Error deployando proyecto:', error);
-        res.status(500).json({ 
-            error: error.message,
-            project: projectId,
-            status: 'error',
-            output: error.stdout || '',
-            errorDetails: error.stderr || ''
-        });
+        
+        // Verificar si el error es realmente un fallo o solo output verboso
+        const isRealError = !error.stdout || 
+                           !error.stdout.includes('DEPLOY COMPLETADO EXITOSAMENTE') ||
+                           error.code !== 0;
+        
+        if (isRealError) {
+            res.status(500).json({ 
+                error: error.message,
+                project: projectId,
+                status: 'error',
+                output: error.stdout || '',
+                errorDetails: error.stderr || ''
+            });
+        } else {
+            // El deploy fue exitoso pero execPromise lo interpretó como error por stderr
+            const result = {
+                project: projectId,
+                status: 'success',
+                output: error.stdout || '',
+                timestamp: new Date().toISOString(),
+                deployUrl: `https://${subdomain || projectId}.${selectedDomain}`,
+                localUrl: port ? `http://localhost:${port}` : null,
+                warning: 'Deploy completado con warnings menores'
+            };
+            res.json(result);
+        }
     }
 });
 
