@@ -1196,28 +1196,17 @@ app.get('/api/projects/:projectId/docs', async (req, res) => {
     const { projectId } = req.params;
     
     try {
-        // Mapeo de proyectos (mismo que usa la API de lista)
-        const projectPaths = {
-            'iva-compensator': {
-                path: '/Users/mini-server/production/node-apps/iva-compensator',
-                name: 'IVA Compensator'
-            },
-            'migestpro': {
-                path: '/Users/mini-server/MiGestPro',
-                name: 'MiGestPro'
-            },
-            'dashboard-mvp': {
-                path: '/Users/mini-server/server-dashboard-mvp',
-                name: 'Dashboard MVP'
-            }
-        };
-        
-        const project = projectPaths[projectId];
-        if (!project) {
+        // Obtener información del proyecto de manera genérica
+        const projectPath = await getProjectPath(projectId);
+        if (!projectPath) {
             return res.status(404).json({ error: 'Proyecto no encontrado' });
         }
         
-        const projectPath = project.path;
+        // Obtener el nombre del proyecto del scanner
+        const { scanAllProjects } = require('/Users/mini-server/server-config/project-scanner.js');
+        const projects = await scanAllProjects();
+        const project = projects.find(p => p.id === projectId);
+        const projectName = project ? project.name : projectId;
         const mdFiles = [];
         
         // Buscar archivos .md en el directorio del proyecto
@@ -1257,7 +1246,7 @@ app.get('/api/projects/:projectId/docs', async (req, res) => {
         
         res.json({
             success: true,
-            project: project.name,
+            project: projectName,
             files: mdFiles,
             count: mdFiles.length
         });
@@ -1410,13 +1399,8 @@ async function getHistoryData(filterType = null, limit = 50) {
 
 // Funciones auxiliares para el cierre universal
 function generateUniversalCommitMessage(projectId, version, projectType, result) {
-    const projectDescriptions = {
-        'iva-compensator': '- Sistema de compensación IVA completamente funcional\n- 582 facturas procesadas y clasificadas\n- API estable en puerto 5001\n- Frontend accesible via https://iva.lisbontiles.com',
-        'migestpro': '- Sistema de gestión empresarial\n- Interface moderna y funcional\n- Base de datos SQLite optimizada',
-        'dashboard-mvp': '- Panel de control del servidor Mac Mini\n- Gestión completa de aplicaciones y proyectos\n- Monitoreo en tiempo real'
-    };
-
-    const description = projectDescriptions[projectId] || `- Proyecto ${projectType} completamente funcional\n- Sistema estable y documentado`;
+    // Usar descripción genérica para todos los proyectos
+    const description = `- Proyecto ${projectType} completamente funcional\n- Sistema estable y documentado`;
 
     return `🎯 Cierre de proyecto ${projectId} ${version}
 
@@ -1489,13 +1473,8 @@ ${result.pushedToGitHub ? `
 }
 
 function getProjectDescription(projectId, projectType) {
-    const descriptions = {
-        'iva-compensator': 'Sistema especializado para separar y clasificar facturas electrónicas portuguesas de IVA entre dos empresas diferentes.',
-        'migestpro': 'Sistema integral de gestión empresarial con interface moderna y base de datos optimizada.',
-        'dashboard-mvp': 'Panel de control central para gestión del servidor Mac Mini con monitoreo en tiempo real.'
-    };
-    
-    return descriptions[projectId] || `Proyecto ${projectType} con gestión automatizada de desarrollo.`;
+    // Retornar descripción genérica para todos los proyectos
+    return `Proyecto ${projectType} con gestión automatizada de desarrollo.`;
 }
 
 function getTechnologyStack(projectPath) {
@@ -1506,60 +1485,24 @@ function getTechnologyStack(projectPath) {
 }
 
 function getProjectAchievements(projectId) {
-    const achievements = {
-        'iva-compensator': `- Migración exitosa de 582 facturas desde Docker
-- Corrección de error constraint BD para clasificación "omitir"
-- Implementación de manejo de IVA no deducible
-- Sistema completamente operacional`,
-        'migestpro': `- Interface moderna completamente funcional
-- Base de datos SQLite optimizada
-- Sistema de autenticación implementado
-- Deploy automático configurado`,
-        'dashboard-mvp': `- Gestión completa de proyectos implementada
-- Monitoreo en tiempo real funcionando
-- Integración con GitHub automatizada
-- Sistema de cierre universal creado`
-    };
-    
-    return achievements[projectId] || `- Sistema ${projectId} completamente funcional
+    // Retornar logros genéricos para todos los proyectos
+    return `- Sistema ${projectId} completamente funcional
 - Documentación completa y actualizada
 - Versionado automático implementado
 - Preparado para desarrollo continuo`;
 }
 
 function getTechnicalStack(projectId, projectType) {
-    const stacks = {
-        'iva-compensator': `- **Backend**: Python Flask con pg8000 driver (Python 3.13 compatible)
-- **Frontend**: Vanilla JavaScript con interfaz moderna
-- **Database**: PostgreSQL con constraints apropiadas
-- **Process Management**: PM2 con auto-restart
-- **Deployment**: Mac Mini Server con Cloudflare Tunnel`,
-        'migestpro': `- **Backend**: Node.js con Express
-- **Frontend**: Interface web moderna
-- **Database**: SQLite optimizada
-- **Process Management**: PM2
-- **Deployment**: Mac Mini Server`,
-        'dashboard-mvp': `- **Backend**: Node.js con Express y Socket.io
-- **Frontend**: Bootstrap 5 con JavaScript vanilla
-- **Real-time**: WebSockets para monitoreo
-- **Integration**: GitHub API, PM2, Docker
-- **Deployment**: Mac Mini Server`
-    };
-    
-    return stacks[projectId] || `- **Technology**: ${projectType}
+    // Retornar stack técnico genérico para todos los proyectos
+    return `- **Technology**: ${projectType}
 - **Process Management**: PM2
 - **Version Control**: Git con GitHub
 - **Deployment**: Mac Mini Server`;
 }
 
 function getProjectTagDescription(projectId, projectType) {
-    const descriptions = {
-        'iva-compensator': 'Sistema IVA completamente funcional',
-        'migestpro': 'Sistema gestión empresarial operativo',
-        'dashboard-mvp': 'Panel control servidor completo'
-    };
-    
-    return descriptions[projectId] || `Proyecto ${projectType} completamente funcional`;
+    // Retornar descripción genérica para todos los proyectos
+    return `Proyecto ${projectType} completamente funcional`;
 }
 
 function generateGitignore(projectType) {
@@ -1698,13 +1641,7 @@ app.get('/api/projects/:projectId/info', async (req, res) => {
     const { projectId } = req.params;
     
     try {
-        const projectPaths = {
-            'iva-compensator': '/Users/mini-server/production/node-apps/iva-compensator',
-            'migestpro': '/Users/mini-server/MiGestPro',
-            'dashboard-mvp': '/Users/mini-server/server-dashboard-mvp'
-        };
-
-        const projectPath = projectPaths[projectId];
+        const projectPath = await getProjectPath(projectId);
         if (!projectPath) {
             return res.status(404).json({ error: 'Proyecto no encontrado' });
         }
