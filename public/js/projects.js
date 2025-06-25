@@ -29,6 +29,7 @@ function updateGlobalNotifications() {
     const container = document.getElementById('global-notifications');
     const notifications = [];
     
+    
     // Analizar todos los proyectos
     projects.forEach(project => {
         if (project.gitStatus) {
@@ -97,6 +98,7 @@ function updateGlobalNotifications() {
         const totalAlerts = notifications.reduce((sum, n) => sum + n.alerts.length, 0);
         document.title = `(${totalAlerts}) Mac Mini Server Dashboard`;
     } else {
+        console.log('No notifications to show');
         // Sin notificaciones, título normal
         document.title = 'Mac Mini Server Dashboard';
     }
