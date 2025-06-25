@@ -677,6 +677,53 @@ app.get('/api/projects/list', async (req, res) => {
                     await execPromise(`cd "${project.path}" && git rev-parse --git-dir`);
                     project.hasGit = true;
                     
+                    // Detectar cambios en Git
+                    const { stdout: statusOutput } = await execPromise(`cd "${project.path}" && git status --porcelain 2>/dev/null || echo ""`);
+                    const changes = statusOutput.trim().split('\n').filter(line => line.length > 0);
+                    
+                    // Detectar commits sin push
+                    let unpushedCommits = 0;
+                    try {
+                        const currentBranch = await execPromise(`cd "${project.path}" && git branch --show-current`);
+                        const { stdout: logOutput } = await execPromise(`cd "${project.path}" && git log origin/${currentBranch.stdout.trim()}..HEAD --oneline 2>/dev/null | wc -l`);
+                        unpushedCommits = parseInt(logOutput.trim()) || 0;
+                    } catch (e) {
+                        // No hay remote o no hay commits
+                    }
+                    
+                    // Detectar si está desplegado
+                    let deployedVersion = null;
+                    let isDeployed = false;
+                    
+                    // Verificar si está en PM2
+                    try {
+                        const { stdout: pm2Output } = await execPromise(`pm2 list | grep -i "${project.name}" || true`);
+                        if (pm2Output.trim()) {
+                            isDeployed = true;
+                            
+                            // Obtener versión desplegada (si hay tags)
+                            try {
+                                const { stdout: deployedTag } = await execPromise(`cd "${project.path}" && git describe --tags --abbrev=0 2>/dev/null`);
+                                deployedVersion = deployedTag.trim();
+                            } catch (e) {
+                                deployedVersion = 'latest';
+                            }
+                        }
+                    } catch (e) {
+                        // No está en PM2
+                    }
+                    
+                    project.gitStatus = {
+                        hasChanges: changes.length > 0,
+                        changedFiles: changes.length,
+                        unpushedCommits: unpushedCommits,
+                        needsCommit: changes.length > 0,
+                        needsPush: unpushedCommits > 0,
+                        needsRedeploy: (changes.length > 0 || unpushedCommits > 0) && isDeployed,
+                        isDeployed: isDeployed,
+                        deployedVersion: deployedVersion
+                    };
+                    
                     // Obtener última versión
                     try {
                         const { stdout } = await execPromise(`cd "${project.path}" && git describe --tags --abbrev=0`);
@@ -698,7 +745,7 @@ app.get('/api/projects/list', async (req, res) => {
     }
 });
 
-// API: Cerrar proyecto (Fusión completa con script original)
+// API: Cerrar proyecto (Usando script universal)
 app.post('/api/projects/:projectId/close', async (req, res) => {
     const { projectId } = req.params;
     
@@ -715,246 +762,133 @@ app.post('/api/projects/:projectId/close', async (req, res) => {
             return res.status(404).json({ error: 'Proyecto no encontrado' });
         }
 
-        // Cambiar al directorio del proyecto
-        process.chdir(projectPath);
-
-        let result = {
+        // Usar el script universal de cierre que ya tiene la lógica correcta
+        const closeScript = '/Users/mini-server/project-management/scripts/project-close.sh';
+        const closeCommand = `"${closeScript}" "${projectPath}"`;
+        
+        console.log('Ejecutando cierre:', closeCommand);
+        
+        let stdout = '';
+        let stderr = '';
+        
+        try {
+            const result = await execPromise(closeCommand, {
+                maxBuffer: 1024 * 1024 * 10, // 10MB buffer
+                timeout: 60000, // 60 segundos timeout
+                cwd: projectPath // Asegurar que se ejecuta en el directorio correcto
+            });
+            stdout = result.stdout || '';
+            stderr = result.stderr || '';
+        } catch (execError) {
+            console.error('Error ejecutando script de cierre:', execError);
+            // Si hay salida parcial, usarla
+            stdout = execError.stdout || '';
+            stderr = execError.stderr || execError.message;
+            
+            // Si el error es porque ya está en la versión actual, no es realmente un error
+            if (stderr.includes('already exists') || 
+                stderr.includes('nada para hacer commit') ||
+                stderr.includes('No hay cambios nuevos') ||
+                stderr.includes('nothing to commit') ||
+                stdout.includes('No hay cambios nuevos para commitear')) {
+                console.log('El proyecto ya está actualizado - no hay cambios pendientes');
+                // Continuar con la información disponible
+            } else {
+                throw execError;
+            }
+        }
+        
+        // Parsear la salida del script para extraer información relevante
+        const result = {
             project: projectId,
-            currentVersion: 'v0.0.0',
-            newVersion: 'v1.0.0',
-            hasChanges: false,
+            status: 'success',
+            output: stdout,
             steps: [],
+            currentVersion: 'v0.0.0',
+            newVersion: 'v0.0.1',
+            hasChanges: false,
             gitInitialized: false,
             needsRemote: false,
+            pushedToGitHub: false,
             projectDetails: {}
         };
 
-        // =============================================================================
-        // 1. VERIFICACIÓN DEL ESTADO - Fusionado con script original
-        // =============================================================================
-        result.steps.push('📊 Verificando estado del repositorio...');
+        // Parsear información del stdout
+        if (stdout.includes('Nueva versión:')) {
+            const versionMatch = stdout.match(/Nueva versión: (v[\d\.]+)/);
+            if (versionMatch) result.newVersion = versionMatch[1];
+        }
+        
+        if (stdout.includes('Versión actual:')) {
+            const currentMatch = stdout.match(/Versión actual: (v[\d\.]+)/);
+            if (currentMatch) result.currentVersion = currentMatch[1];
+        }
+        
+        if (stdout.includes('GitHub:')) {
+            const githubMatch = stdout.match(/GitHub: (https:\/\/github\.com\/[^\s]+)/);
+            if (githubMatch) result.githubUrl = githubMatch[1];
+        }
+        
+        // Extraer pasos del script
+        const lines = stdout.split('\n');
+        for (const line of lines) {
+            if (line.includes('✅') || line.includes('🔄') || line.includes('📝') || 
+                line.includes('🏷️') || line.includes('📤') || line.includes('⚠️')) {
+                result.steps.push(line.trim());
+            }
+        }
+
+        // Determinar si el push fue exitoso
+        if (stdout.includes('✅ Cambios y tags subidos exitosamente a GitHub') || 
+            stdout.includes('Successfully pushed to GitHub')) {
+            result.pushedToGitHub = true;
+        } else if (stdout.includes('GitHub no configurado') || 
+                   stdout.includes('GitHub: No configurado')) {
+            result.needsRemote = true;
+        }
         
         // Detectar tipo de proyecto
-        const projectType = getProjectType(projectPath);
-        result.projectDetails.type = projectType;
-        result.projectDetails.path = projectPath;
-
-        // Verificar si es repositorio Git
-        let isGitRepo = false;
-        try {
-            await execPromise('git rev-parse --git-dir');
-            isGitRepo = true;
-            result.steps.push('✅ Repositorio Git existente validado');
-        } catch (e) {
-            await execPromise('git init');
-            result.steps.push('🔄 Repositorio Git inicializado');
+        if (stdout.includes('Tipo detectado:')) {
+            const typeMatch = stdout.match(/Tipo detectado: ([^\n]+)/);
+            if (typeMatch) result.projectDetails.type = typeMatch[1];
+        }
+        
+        // Detectar si fue Git inicializado
+        if (stdout.includes('Repositorio Git inicializado')) {
             result.gitInitialized = true;
-            isGitRepo = true;
         }
-
-        // Verificar remote GitHub
-        let hasRemote = false;
-        let githubUrl = '';
-        try {
-            const { stdout } = await execPromise('git remote get-url origin');
-            hasRemote = !!stdout.trim();
-            // Limpiar URL de tokens y normalizar
-            githubUrl = stdout.trim()
-                .replace('.git', '')
-                .replace(/https:\/\/[^@]+@github\.com/, 'https://github.com');
-            result.steps.push(`✅ GitHub configurado: ${githubUrl}`);
-        } catch (e) {
-            result.needsRemote = true;
-            result.steps.push('⚠️ GitHub no configurado');
-        }
-
-        // =============================================================================
-        // 2. ANÁLISIS DE CAMBIOS - Del script original
-        // =============================================================================
-        result.steps.push('📝 Analizando cambios pendientes...');
         
-        const { stdout: gitStatus } = await execPromise('git status --porcelain');
-        result.hasChanges = !!gitStatus;
-        
-        if (gitStatus) {
-            result.steps.push(`📝 Archivos con cambios: ${gitStatus.split('\n').length - 1} archivos`);
-        } else {
-            result.steps.push('✅ No hay cambios pendientes');
-        }
-
-        // =============================================================================
-        // 3. LEER CONTEXTO DESDE CLAUDE.md - Del script original
-        // =============================================================================
-        result.steps.push('📖 Leyendo contexto desde CLAUDE.md...');
-        
-        const claudePath = `${projectPath}/CLAUDE.md`;
-        let claudeContent = '';
-        let claudeExists = false;
-        
-        try {
-            claudeContent = await fsPromises.readFile(claudePath, 'utf8');
-            claudeExists = true;
-            result.steps.push('✅ CLAUDE.md encontrado - contexto leído');
-            
-            // Extraer última información del proyecto
-            const lines = claudeContent.split('\n');
-            const lastLines = lines.slice(-10).join('\n');
-            result.projectDetails.lastContext = lastLines;
-        } catch {
-            result.steps.push('⚠️ CLAUDE.md no encontrado - se creará');
-        }
-
-        // =============================================================================
-        // 4. GESTIÓN DE VERSIONES - Del script original mejorado
-        // =============================================================================
-        result.steps.push('🏷️ Gestionando versiones...');
-        
-        let currentVersion = 'v0.0.0';
-        try {
-            const { stdout } = await execPromise('git describe --tags --abbrev=0');
-            currentVersion = stdout.trim();
-        } catch (e) {
-            // Si no hay tags, usar v0.0.0
-        }
-        result.currentVersion = currentVersion;
-        result.steps.push(`🏷️ Versión actual: ${currentVersion}`);
-
-        // Incrementar versión automáticamente (del script original)
-        let newVersion = currentVersion;
-        if (currentVersion.match(/^v(\d+)\.(\d+)\.(\d+)$/)) {
-            const parts = currentVersion.substring(1).split('.');
-            parts[2] = (parseInt(parts[2]) + 1).toString();
-            newVersion = 'v' + parts.join('.');
-        } else {
-            newVersion = 'v1.0.0';
-        }
-        result.newVersion = newVersion;
-        result.steps.push(`🚀 Nueva versión: ${newVersion}`);
-
-        // =============================================================================
-        // 5. CREAR/ACTUALIZAR CLAUDE.md ANTES DEL COMMIT - Fusionado
-        // =============================================================================
-        result.steps.push('📝 Actualizando CLAUDE.md...');
-
-        if (!claudeExists) {
-            // Crear CLAUDE.md básico
-            claudeContent = `# CLAUDE.md
-
-This file provides guidance to Claude Code when working with this repository.
-
-## Project: ${projectId}
-
-### Project Overview
-${getProjectDescription(projectId, projectType)}
-
-### Project Structure
-- **Type**: ${projectType}
-- **Location**: ${projectPath}
-- **Technology**: ${getTechnologyStack(projectPath)}
-
-### Key Commands
-\`\`\`bash
-# Close project with versioning and documentation
-# Executed from Dashboard MVP
-\`\`\`
-
-`;
-            result.steps.push('✅ CLAUDE.md creado con estructura base');
-        }
-
-        // =============================================================================
-        // 6. CREAR .gitignore SI NO EXISTE - Mejora de seguridad
-        // =============================================================================
-        const gitignorePath = `${projectPath}/.gitignore`;
-        if (!fs.existsSync(gitignorePath)) {
-            const gitignoreContent = generateGitignore(projectType);
-            await fsPromises.writeFile(gitignorePath, gitignoreContent);
-            result.steps.push('✅ .gitignore creado con exclusiones apropiadas');
-        }
-
-        // =============================================================================
-        // 7. AÑADIR ARCHIVOS AL STAGING - Del script original
-        // =============================================================================
-        if (result.hasChanges || !claudeExists) {
-            await execPromise('git add .');
-            result.steps.push('✅ Archivos añadidos al staging');
-        }
-
-        // =============================================================================
-        // 7. COMMIT CON MENSAJE DESCRIPTIVO - Fusionado y generalizado
-        // =============================================================================
-        result.steps.push('💾 Creando commit descriptivo...');
-
-        const commitMessage = generateUniversalCommitMessage(projectId, newVersion, projectType, result);
-
-        if (result.hasChanges || !claudeExists) {
-            await execPromise(`git commit -m "${commitMessage}"`);
-            result.steps.push('✅ Commit creado exitosamente');
-        }
-
-        // =============================================================================
-        // 8. CREAR TAG DE VERSIÓN - Del script original
-        // =============================================================================
-        const tagMessage = `${projectId} ${newVersion} - ${getProjectTagDescription(projectId, projectType)}`;
-        await execPromise(`git tag -a "${newVersion}" -m "${tagMessage}"`);
-        result.steps.push(`✅ Tag ${newVersion} creado`);
-
-        // =============================================================================
-        // 9. PUSH A GITHUB - Del script original mejorado
-        // =============================================================================
-        if (hasRemote) {
-            result.steps.push('📤 Subiendo cambios a GitHub...');
-            
-            try {
-                await execPromise('git push origin main --tags');
-                result.pushedToGitHub = true;
-                result.githubUrl = githubUrl;
-                result.steps.push('✅ Cambios y tags subidos exitosamente a GitHub');
-            } catch (pushError) {
-                result.pushError = pushError.message;
-                result.pushedToGitHub = false;
-                result.steps.push(`⚠️ Error subiendo a GitHub: ${pushError.message}`);
+        // Detectar si repo ya existe en GitHub
+        if (stdout.includes('El repositorio existe como:')) {
+            const repoMatch = stdout.match(/El repositorio existe como: ([^\s,]+)/);
+            if (repoMatch) {
+                result.steps.push(`✅ Repositorio GitHub detectado correctamente: ${repoMatch[1]}`);
             }
-        } else {
-            result.suggestedGitHubRepo = `https://github.com/vmsebas/${projectId}.git`;
-            result.setupCommands = [
-                `git remote add origin https://github.com/vmsebas/${projectId}.git`,
-                `git push -u origin main --tags`
-            ];
-            result.steps.push('⚠️ GitHub no configurado - comandos de setup preparados');
         }
-
-        // =============================================================================
-        // 10. ACTUALIZAR CLAUDE.md CON INFORMACIÓN COMPLETA - Fusionado
-        // =============================================================================
-        const finalClosureInfo = generateUniversalClosureInfo(projectId, newVersion, result, projectType);
         
-        await fsPromises.writeFile(claudePath, claudeContent + finalClosureInfo);
-        result.steps.push('✅ CLAUDE.md actualizado con información completa de cierre');
-
-        // =============================================================================
-        // 11. PREPARAR RESUMEN FINAL - Del script original
-        // =============================================================================
-        result.status = 'success';
-        result.message = `Proyecto ${projectId} cerrado exitosamente`;
+        // Detectar problemas específicos de push
+        if (stdout.includes('Push failed:') || stdout.includes('Error subiendo a GitHub:')) {
+            result.pushError = 'Error de sincronización con GitHub';
+            result.needsSync = true;
+        }
+        
+        // Preparar resumen para UI
         result.summary = {
             project: projectId,
-            version: `${currentVersion} → ${newVersion}`,
+            version: `${result.currentVersion} → ${result.newVersion}`,
             date: new Date().toLocaleDateString(),
             time: new Date().toLocaleTimeString(),
-            type: projectType,
+            type: result.projectDetails.type || 'Unknown',
             location: projectPath,
-            github: hasRemote ? githubUrl : 'No configurado',
-            actions: [
-                result.gitInitialized ? 'Git inicializado' : 'Git validado',
-                claudeExists ? 'CLAUDE.md actualizado' : 'CLAUDE.md creado',
-                'Commit creado y versionado',
-                `Tag ${newVersion} aplicado`,
-                result.pushedToGitHub ? 'Subido a GitHub' : 'GitHub pendiente',
-                'Documentación completa actualizada'
-            ]
+            github: result.pushedToGitHub ? result.githubUrl : (result.needsSync ? 'Necesita sincronización' : 'No configurado'),
+            actions: result.steps.filter(step => step.includes('✅')).slice(0, 6)
         };
-
+        
+        // Si hay errores en stderr, incluirlos
+        if (stderr) {
+            result.warnings = stderr;
+        }
+        
         res.json(result);
     } catch (error) {
         console.error('Error cerrando proyecto:', error);
@@ -1019,7 +953,7 @@ app.post('/api/projects/:projectId/deploy', async (req, res) => {
 // API: Iniciar proyecto (development)
 app.post('/api/projects/:projectId/start', async (req, res) => {
     const { projectId } = req.params;
-    const { mode = 'dev' } = req.body;
+    const { mode = 'analyze' } = req.body; // Por defecto, analizar primero
     
     try {
         // Mapeo de proyectos
@@ -1034,7 +968,60 @@ app.post('/api/projects/:projectId/start', async (req, res) => {
             return res.status(404).json({ error: 'Proyecto no encontrado' });
         }
 
-        // Ejecutar script de start (sin inicio automático del servidor)
+        // Si el modo es "analyze", ejecutar script de análisis
+        if (mode === 'analyze') {
+            const analyzeScript = '/Users/mini-server/project-management/scripts/project-analyze.sh';
+            const analyzeCommand = `"${analyzeScript}" "${projectPath}"`;
+            
+            console.log('Analizando proyecto:', analyzeCommand);
+            
+            const { stdout: analyzeOutput, stderr: analyzeError } = await execPromise(analyzeCommand);
+            
+            try {
+                const analysis = JSON.parse(analyzeOutput);
+                
+                // También preparar información de desarrollo remoto
+                const remoteScript = '/Users/mini-server/project-management/scripts/project-start-remote.sh';
+                const { stdout: remoteOutput } = await execPromise(`"${remoteScript}" "${projectPath}" "mini-server"`);
+                
+                // Extraer información remota
+                const jsonMatch = remoteOutput.match(/---JSON_OUTPUT---([\s\S]*?)---END_JSON_OUTPUT---/);
+                let remoteInfo = {};
+                if (jsonMatch) {
+                    try {
+                        remoteInfo = JSON.parse(jsonMatch[1].trim());
+                    } catch (e) {
+                        console.error('Error parsing remote info:', e);
+                    }
+                }
+                
+                res.json({
+                    project: projectId,
+                    status: 'analyzed',
+                    mode: mode,
+                    analysis: analysis,
+                    remoteInfo: remoteInfo,
+                    quickConnect: {
+                        sshCommand: remoteInfo.ssh_command,
+                        warpUrl: remoteInfo.warp_url
+                    },
+                    timestamp: new Date().toISOString()
+                });
+                
+            } catch (parseError) {
+                console.error('Error parsing analysis:', parseError);
+                res.json({
+                    project: projectId,
+                    status: 'error',
+                    error: 'Error analizando proyecto',
+                    output: analyzeOutput,
+                    stderr: analyzeError
+                });
+            }
+            return;
+        }
+
+        // Modo tradicional de inicio (para compatibilidad)
         const startScript = '/Users/mini-server/project-management/scripts/project-start.sh';
         const startCommand = `"${startScript}" "${projectPath}" "${mode}"`;
         
@@ -1071,6 +1058,123 @@ app.post('/api/projects/:projectId/start', async (req, res) => {
             output: error.stdout || '',
             errorDetails: error.stderr || ''
         });
+    }
+});
+
+// API: Iniciar proyecto en modo desarrollo remoto
+app.post('/api/projects/:projectId/start-remote', async (req, res) => {
+    const { projectId } = req.params;
+    const { remoteUser = 'mini-server' } = req.body;
+    
+    try {
+        // Mapeo de proyectos
+        const projectPaths = {
+            'iva-compensator': '/Users/mini-server/production/node-apps/iva-compensator',
+            'migestpro': '/Users/mini-server/MiGestPro',
+            'dashboard-mvp': '/Users/mini-server/server-dashboard-mvp'
+        };
+
+        const projectPath = projectPaths[projectId];
+        if (!projectPath) {
+            return res.status(404).json({ error: 'Proyecto no encontrado' });
+        }
+
+        // Ejecutar script de desarrollo remoto
+        const remoteScript = '/Users/mini-server/project-management/scripts/project-start-remote.sh';
+        const remoteCommand = `"${remoteScript}" "${projectPath}" "${remoteUser}"`;
+        
+        console.log('Preparando desarrollo remoto:', remoteCommand);
+        
+        const { stdout, stderr } = await execPromise(remoteCommand);
+        
+        // Extraer JSON del output
+        const jsonMatch = stdout.match(/---JSON_OUTPUT---([\s\S]*?)---END_JSON_OUTPUT---/);
+        let remoteInfo = {};
+        
+        if (jsonMatch) {
+            try {
+                remoteInfo = JSON.parse(jsonMatch[1].trim());
+            } catch (e) {
+                console.error('Error parsing remote info:', e);
+            }
+        }
+        
+        // Generar URLs de conexión
+        const connectUrl = `http://${req.headers.host}/api/projects/${projectId}/remote-dev`;
+        const warpCommand = `curl -s '${connectUrl}' | bash -s -- --open-warp`;
+        
+        const result = {
+            project: projectId,
+            status: 'success',
+            mode: 'remote-development',
+            output: stdout,
+            error: stderr,
+            timestamp: new Date().toISOString(),
+            remoteInfo: remoteInfo,
+            quickConnect: {
+                sshCommand: remoteInfo.ssh_command,
+                warpUrl: remoteInfo.warp_url,
+                downloadScript: `${connectUrl}/script`,
+                curlCommand: warpCommand
+            }
+        };
+
+        res.json(result);
+    } catch (error) {
+        console.error('Error preparando desarrollo remoto:', error);
+        res.status(500).json({ 
+            error: error.message,
+            project: projectId,
+            timestamp: new Date().toISOString()
+        });
+    }
+});
+
+// API: Obtener información de desarrollo remoto
+app.get('/api/projects/:projectId/remote-dev', async (req, res) => {
+    const { projectId } = req.params;
+    
+    try {
+        // Leer información del archivo temporal
+        const infoFile = `/tmp/remote-dev-${projectId}.json`;
+        
+        if (fs.existsSync(infoFile)) {
+            const data = await fsPromises.readFile(infoFile, 'utf8');
+            const remoteInfo = JSON.parse(data);
+            
+            // Si se solicita el script
+            if (req.path.endsWith('/script')) {
+                res.type('text/plain');
+                res.send(`#!/bin/bash
+# Auto-generated script for remote development
+PROJECT="${remoteInfo.project}"
+SSH_CMD="${remoteInfo.ssh_command}"
+
+echo "🚀 Conectando a desarrollo remoto: $PROJECT"
+echo ""
+
+# Verificar si estamos en macOS con Warp
+if [[ "$OSTYPE" == "darwin"* ]] && [ -d "/Applications/Warp.app" ]; then
+    echo "🔗 Abriendo Warp Terminal..."
+    osascript -e "tell app \\"Warp\\" to activate" \\
+              -e "tell app \\"System Events\\" to keystroke \\"t\\" using command down" \\
+              -e "tell app \\"System Events\\" to keystroke \\"$SSH_CMD\\"" \\
+              -e "tell app \\"System Events\\" to key code 36"
+else
+    echo "📋 Comando SSH (copia y pega):"
+    echo "$SSH_CMD"
+    echo ""
+    echo "$SSH_CMD" | pbcopy 2>/dev/null && echo "✅ Copiado al clipboard"
+fi
+`);
+            } else {
+                res.json(remoteInfo);
+            }
+        } else {
+            res.status(404).json({ error: 'Información de desarrollo remoto no encontrada' });
+        }
+    } catch (error) {
+        res.status(500).json({ error: error.message });
     }
 });
 

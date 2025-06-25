@@ -57,6 +57,7 @@ Panel de control central para gestión del servidor Mac Mini con monitoreo en ti
 - ✅ Confirmación interactiva de subdominio en deploy
 - ✅ Documentación completa de flujos en `/project-management/docs/`
 - ✅ Visor de archivos MD integrado en proyectos
+- ✅ Errores de sintaxis en project-deploy.sh corregidos
 
 ### Comandos de Desarrollo
 ```bash
@@ -472,4 +473,46 @@ pm2 logs dashboard-mvp
 - Check pending tasks and improvements
 - Continue development with full project history
 - All tools and documentation ready for immediate use
+
+
+
+## Project Deploy Information
+
+**Deployed:** 2025-06-25 04:03:27
+**Status:** ✅ Successfully Deployed
+**URL:** https://dashboard-mvp.lisbontiles.com
+
+### Deploy Configuration:
+- **Type**: Node.js (Express.js)
+- **Method**: PM2
+- **Port**: 3000
+- **Subdomain**: dashboard-mvp.lisbontiles.com
+- **Server IP**: 85.245.221.221
+
+### Services Status:
+- **Application**: ✅ Running on port 3000
+- **Nginx**: ✅ Configured and running
+- **DNS**: ✅ Configured in Cloudflare
+- **SSL**: ✅ Automatic via Cloudflare
+
+### Management Commands:
+```bash
+# Check application status
+pm2 list | grep server-dashboard-mvp
+
+# View logs
+pm2 logs server-dashboard-mvp
+
+# Restart application
+pm2 restart server-dashboard-mvp
+
+# Update and redeploy
+/Users/mini-server/project-management/scripts/project-deploy.sh /Users/mini-server/server-dashboard-mvp dashboard-mvp 3000
+```
+
+### Project URLs:
+- **Production (Cloudflare)**: https://dashboard-mvp.lisbontiles.com
+- **VPN Access (Tailscale)**: https://mini-server:3000
+- **Local**: http://localhost:3000
+
 

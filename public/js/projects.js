@@ -35,9 +35,24 @@ function renderProjects() {
         return;
     }
 
-    container.innerHTML = projects.map(project => `
+    container.innerHTML = projects.map(project => {
+        // Preparar indicadores de estado
+        let statusIndicators = [];
+        if (project.gitStatus) {
+            if (project.gitStatus.needsCommit) {
+                statusIndicators.push('<span class="badge bg-warning" title="Cambios sin commitear"><i class="bi bi-exclamation-circle"></i> ' + project.gitStatus.changedFiles + ' cambios</span>');
+            }
+            if (project.gitStatus.needsPush) {
+                statusIndicators.push('<span class="badge bg-info" title="Commits sin push"><i class="bi bi-cloud-upload"></i> ' + project.gitStatus.unpushedCommits + ' commits</span>');
+            }
+            if (project.gitStatus.needsRedeploy) {
+                statusIndicators.push('<span class="badge bg-danger" title="Necesita re-deploy"><i class="bi bi-arrow-repeat"></i> Re-deploy</span>');
+            }
+        }
+        
+        return `
         <div class="col-lg-4 col-md-6 mb-4">
-            <div class="card h-100">
+            <div class="card h-100 ${project.gitStatus?.needsRedeploy ? 'border-danger' : ''}">
                 <div class="card-header d-flex justify-content-between align-items-center">
                     <h6 class="mb-0">
                         <i class="bi bi-folder"></i> ${project.name}
@@ -46,6 +61,12 @@ function renderProjects() {
                 </div>
                 <div class="card-body">
                     <p class="text-muted small mb-2">${project.description}</p>
+                    
+                    ${statusIndicators.length > 0 ? `
+                        <div class="mb-2">
+                            ${statusIndicators.join(' ')}
+                        </div>
+                    ` : ''}
                     
                     <div class="mb-3">
                         <div class="row g-2">
@@ -98,12 +119,14 @@ function renderProjects() {
                         </div>
                         <div class="btn-group" role="group">
                             <button class="btn btn-outline-success btn-sm" onclick="startProject('${project.id}')"
-                                    title="Iniciar proyecto en modo desarrollo">
-                                <i class="bi bi-play-circle"></i> Iniciar
+                                    title="Analizar e iniciar desarrollo">
+                                <i class="bi bi-play-circle"></i> Iniciar Desarrollo
                             </button>
-                            <button class="btn btn-outline-primary btn-sm" onclick="deployProject('${project.id}')"
-                                    title="Deploy automático con Nginx y DNS">
-                                <i class="bi bi-rocket"></i> Deploy
+                            <button class="btn ${project.gitStatus?.needsRedeploy ? 'btn-danger' : 'btn-outline-primary'} btn-sm" 
+                                    onclick="deployProject('${project.id}')"
+                                    title="${project.gitStatus?.needsRedeploy ? 'Re-deploy necesario - hay cambios pendientes' : 'Deploy automático con Nginx y DNS'}">
+                                <i class="bi bi-${project.gitStatus?.needsRedeploy ? 'arrow-repeat' : 'rocket'}"></i> 
+                                ${project.gitStatus?.needsRedeploy ? 'Re-deploy' : 'Deploy'}
                             </button>
                         </div>
                         <button class="btn btn-success btn-sm" onclick="closeProject('${project.id}')" 
@@ -436,35 +459,28 @@ async function deployProject(projectId) {
     showDeployConfigModal(projectId);
 }
 
-async function startProject(projectId, mode = 'dev') {
-    const confirmed = confirm(`¿Quieres iniciar el proyecto "${projectId}" en modo ${mode}?\\n\\nEsto preparará el entorno de desarrollo y las dependencias.`);
-    
-    if (!confirmed) return;
-    
+async function startProject(projectId) {
     try {
-        showNotification('Iniciando proyecto...', 'info');
+        showNotification('Analizando proyecto...', 'info');
         
         const response = await fetch(`/api/projects/${projectId}/start`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ mode })
+            body: JSON.stringify({ mode: 'analyze' }) // Primero analizar
         });
         
         const result = await response.json();
         
         if (!response.ok) throw new Error(result.error);
         
-        // Mostrar resultado del inicio
-        showProjectStartResult(result);
-        
-        // Recargar lista de proyectos
-        setTimeout(loadProjects, 2000);
+        // Mostrar análisis del proyecto
+        showProjectAnalysis(result);
         
     } catch (error) {
-        console.error('Error iniciando proyecto:', error);
-        showNotification(`Error iniciando proyecto: ${error.message}`, 'error');
+        console.error('Error analizando proyecto:', error);
+        showNotification(`Error: ${error.message}`, 'error');
     }
 }
 
@@ -1056,4 +1072,380 @@ function showDocContent(index) {
     if (typeof Prism !== 'undefined') {
         Prism.highlightAllUnder(contentDiv);
     }
+}
+
+// Función para mostrar análisis del proyecto
+function showProjectAnalysis(result) {
+    const { analysis, remoteInfo, quickConnect } = result;
+    
+    // Preparar información de Git
+    let gitStatusHtml = '';
+    if (analysis.git_status) {
+        const git = analysis.git_status;
+        gitStatusHtml = `
+            <div class="card mb-3">
+                <div class="card-header">
+                    <i class="bi bi-git"></i> Estado de Git
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <p><strong>Rama actual:</strong> ${git.current_branch}</p>
+                            <p><strong>Último commit:</strong> ${git.last_commit}</p>
+                        </div>
+                        <div class="col-md-6">
+                            ${git.changes ? `
+                                <p><strong>Cambios pendientes:</strong></p>
+                                <ul class="small">
+                                    ${git.changes.unstaged > 0 ? `<li>${git.changes.unstaged} archivos sin stage</li>` : ''}
+                                    ${git.changes.staged > 0 ? `<li>${git.changes.staged} archivos en stage</li>` : ''}
+                                    ${git.changes.untracked > 0 ? `<li>${git.changes.untracked} archivos sin trackear</li>` : ''}
+                                    ${git.unpushed_commits > 0 ? `<li class="text-warning">${git.unpushed_commits} commits sin push</li>` : ''}
+                                </ul>
+                            ` : ''}
+                        </div>
+                    </div>
+                    ${git.recent_commits && git.recent_commits.length > 0 ? `
+                        <hr>
+                        <h6>Commits recientes:</h6>
+                        <ul class="small">
+                            ${git.recent_commits.slice(0, 3).map(c => 
+                                `<li><code>${c.hash}</code> - ${c.message} <span class="text-muted">(${c.relative})</span></li>`
+                            ).join('')}
+                        </ul>
+                    ` : ''}
+                </div>
+            </div>
+        `;
+    }
+    
+    // Preparar información de desarrollo
+    let devContextHtml = '';
+    if (analysis.development_context) {
+        const ctx = analysis.development_context;
+        devContextHtml = `
+            <div class="card mb-3">
+                <div class="card-header">
+                    <i class="bi bi-clock-history"></i> Contexto de Desarrollo
+                </div>
+                <div class="card-body">
+                    ${ctx.last_session ? `<p><strong>Última sesión:</strong> ${ctx.last_session}</p>` : ''}
+                    ${ctx.last_closure ? `<p><strong>Último cierre:</strong> ${ctx.last_closure}</p>` : ''}
+                    ${ctx.pending_todos > 0 ? `<p class="text-warning"><strong>TODOs pendientes:</strong> ${ctx.pending_todos}</p>` : ''}
+                    ${!ctx.has_claude_md ? '<p class="text-muted">No hay CLAUDE.md (se creará automáticamente)</p>' : ''}
+                </div>
+            </div>
+        `;
+    }
+    
+    // Preparar dependencias
+    let depsHtml = '';
+    if (analysis.dependencies && analysis.dependencies.services.length > 0) {
+        depsHtml = `
+            <div class="card mb-3">
+                <div class="card-header">
+                    <i class="bi bi-gear"></i> Dependencias y Servicios
+                </div>
+                <div class="card-body">
+                    <ul>
+                        ${analysis.dependencies.services.map(s => 
+                            `<li>${s.name} - <span class="${s.status === 'running' ? 'text-success' : 'text-danger'}">${s.status}</span></li>`
+                        ).join('')}
+                    </ul>
+                    ${analysis.dependencies.outdated_packages > 0 ? 
+                        `<p class="text-warning small">⚠️ ${analysis.dependencies.outdated_packages} paquetes desactualizados</p>` : ''}
+                </div>
+            </div>
+        `;
+    }
+    
+    // Preparar siguientes pasos
+    let stepsHtml = '';
+    if (analysis.next_steps && analysis.next_steps.length > 0) {
+        stepsHtml = `
+            <div class="alert alert-info">
+                <h6><i class="bi bi-lightbulb"></i> Recomendaciones:</h6>
+                <ul class="mb-0">
+                    ${analysis.next_steps.map(step => 
+                        `<li class="small">${step.message}</li>`
+                    ).join('')}
+                </ul>
+            </div>
+        `;
+    }
+    
+    const modalHtml = `
+        <div class="modal fade" id="projectAnalysisModal" tabindex="-1">
+            <div class="modal-dialog modal-xl">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">
+                            <i class="bi bi-clipboard-data"></i> Análisis del Proyecto: ${analysis.project}
+                        </h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="row">
+                            <div class="col-md-4">
+                                <div class="card mb-3">
+                                    <div class="card-header">
+                                        <i class="bi bi-info-circle"></i> Información General
+                                    </div>
+                                    <div class="card-body">
+                                        <p><strong>Tipo:</strong> ${analysis.project_info.type}</p>
+                                        <p><strong>Tecnología:</strong> ${analysis.project_info.technology}</p>
+                                        <p><strong>Versión:</strong> ${analysis.project_info.version || 'N/A'}</p>
+                                        <hr>
+                                        <p><strong>Estado:</strong></p>
+                                        <ul class="small">
+                                            <li>PM2: ${analysis.runtime_status.pm2}</li>
+                                            <li>Docker: ${analysis.runtime_status.docker}</li>
+                                            <li>Puerto: ${analysis.runtime_status.port}</li>
+                                        </ul>
+                                    </div>
+                                </div>
+                                ${depsHtml}
+                            </div>
+                            <div class="col-md-8">
+                                ${gitStatusHtml}
+                                ${devContextHtml}
+                                ${stepsHtml}
+                                
+                                <div class="card">
+                                    <div class="card-header bg-success text-white">
+                                        <i class="bi bi-terminal"></i> Listo para Desarrollo
+                                    </div>
+                                    <div class="card-body">
+                                        <p>Se creará la rama: <strong>${remoteInfo.branch}</strong></p>
+                                        <p>Puerto de desarrollo: <strong>${remoteInfo.port}</strong></p>
+                                        
+                                        <div class="d-grid gap-2">
+                                            <button class="btn btn-success" onclick="continueToWarp('${result.project}', '${quickConnect.sshCommand}', '${remoteInfo.branch}')">
+                                                <i class="bi bi-terminal"></i> Continuar Desarrollo en Warp
+                                            </button>
+                                            <button class="btn btn-outline-secondary" onclick="copyToClipboard('analysisSSHCommand')">
+                                                <i class="bi bi-clipboard"></i> Copiar Comando SSH
+                                            </button>
+                                        </div>
+                                        
+                                        <input type="hidden" id="analysisSSHCommand" value="${quickConnect.sshCommand}">
+                                        
+                                        <hr>
+                                        <details>
+                                            <summary class="text-muted small">Opciones avanzadas</summary>
+                                            <div class="mt-2">
+                                                <p class="small">Comando curl para terminal local:</p>
+                                                <code class="small">curl -s '${window.location.origin}/api/projects/${analysis.project}/remote-dev/script' | bash</code>
+                                            </div>
+                                        </details>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    // Eliminar modal anterior si existe
+    const existingModal = document.getElementById('projectAnalysisModal');
+    if (existingModal) {
+        existingModal.remove();
+    }
+    
+    // Añadir modal al DOM
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+    
+    // Mostrar modal
+    const modal = new bootstrap.Modal(document.getElementById('projectAnalysisModal'));
+    modal.show();
+}
+
+// Función para continuar desarrollo en Warp
+function continueToWarp(projectId, sshCommand, branch) {
+    showNotification(`Abriendo Warp Terminal para ${projectId}...`, 'info');
+    
+    // Cerrar modal
+    const modal = bootstrap.Modal.getInstance(document.getElementById('projectAnalysisModal'));
+    if (modal) modal.hide();
+    
+    // Intentar abrir Warp mediante URL scheme o mostrar instrucciones
+    const warpCommand = `curl -s '${window.location.origin}/api/projects/${projectId}/remote-dev/script' | bash`;
+    
+    // Copiar comando al portapapeles
+    const tempInput = document.createElement('input');
+    tempInput.value = warpCommand;
+    document.body.appendChild(tempInput);
+    tempInput.select();
+    document.execCommand('copy');
+    document.body.removeChild(tempInput);
+    
+    // Mostrar instrucciones
+    const instructionsHtml = `
+        <div class="alert alert-info alert-dismissible fade show" role="alert">
+            <h5 class="alert-heading"><i class="bi bi-terminal"></i> Conectando a Desarrollo Remoto</h5>
+            <p>El comando ha sido copiado al portapapeles. Pégalo en tu Terminal local:</p>
+            <code>${warpCommand}</code>
+            <hr>
+            <p class="mb-0 small">Esto abrirá Warp Terminal conectado a la rama <strong>${branch}</strong></p>
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+    `;
+    
+    // Mostrar instrucciones en la página
+    const alertContainer = document.querySelector('.container-fluid') || document.body;
+    alertContainer.insertAdjacentHTML('afterbegin', instructionsHtml);
+}
+
+// Función para iniciar desarrollo remoto (legacy - se mantiene por compatibilidad)
+async function startRemoteDev(projectId) {
+    try {
+        showNotification('Preparando desarrollo remoto...', 'info');
+        
+        const response = await fetch(`/api/projects/${projectId}/start-remote`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ remoteUser: 'mini-server' })
+        });
+        
+        const result = await response.json();
+        
+        if (!response.ok) throw new Error(result.error);
+        
+        // Mostrar modal con opciones de conexión
+        showRemoteDevModal(result);
+        
+    } catch (error) {
+        console.error('Error iniciando desarrollo remoto:', error);
+        showNotification(`Error: ${error.message}`, 'error');
+    }
+}
+
+// Modal para mostrar opciones de desarrollo remoto
+function showRemoteDevModal(result) {
+    const { remoteInfo, quickConnect } = result;
+    
+    const modalHtml = `
+        <div class="modal fade" id="remoteDevModal" tabindex="-1">
+            <div class="modal-dialog modal-lg">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">
+                            <i class="bi bi-terminal"></i> Desarrollo Remoto - ${remoteInfo.project}
+                        </h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="alert alert-success">
+                            <i class="bi bi-check-circle"></i> Rama de desarrollo creada: <strong>${remoteInfo.branch}</strong>
+                        </div>
+                        
+                        <h6>🚀 Opciones de Conexión:</h6>
+                        
+                        <div class="card mb-3">
+                            <div class="card-header">
+                                <i class="bi bi-1-circle"></i> Comando SSH Directo
+                            </div>
+                            <div class="card-body">
+                                <div class="input-group">
+                                    <input type="text" class="form-control font-monospace" 
+                                           value="${quickConnect.sshCommand}" readonly id="sshCommand">
+                                    <button class="btn btn-outline-secondary" onclick="copyToClipboard('sshCommand')">
+                                        <i class="bi bi-clipboard"></i> Copiar
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="card mb-3">
+                            <div class="card-header">
+                                <i class="bi bi-2-circle"></i> Abrir en Warp Terminal (macOS)
+                            </div>
+                            <div class="card-body">
+                                <p>Ejecuta este comando en tu Terminal local:</p>
+                                <div class="input-group">
+                                    <input type="text" class="form-control font-monospace" 
+                                           value="curl -s '${window.location.origin}/api/projects/${remoteInfo.project}/remote-dev/script' | bash" 
+                                           readonly id="warpCommand">
+                                    <button class="btn btn-outline-secondary" onclick="copyToClipboard('warpCommand')">
+                                        <i class="bi bi-clipboard"></i> Copiar
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="card">
+                            <div class="card-header">
+                                <i class="bi bi-3-circle"></i> Port Forwarding
+                            </div>
+                            <div class="card-body">
+                                <p>Para acceder localmente al puerto ${remoteInfo.port}:</p>
+                                <div class="input-group">
+                                    <input type="text" class="form-control font-monospace" 
+                                           value="ssh -L ${remoteInfo.port}:localhost:${remoteInfo.port} mini-server@${remoteInfo.server_ip}" 
+                                           readonly id="portCommand">
+                                    <button class="btn btn-outline-secondary" onclick="copyToClipboard('portCommand')">
+                                        <i class="bi bi-clipboard"></i> Copiar
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <hr>
+                        
+                        <div class="row">
+                            <div class="col-md-6">
+                                <h6>📊 Información:</h6>
+                                <ul class="small">
+                                    <li>Proyecto: <strong>${remoteInfo.project}</strong></li>
+                                    <li>Tipo: <strong>${remoteInfo.type}</strong></li>
+                                    <li>Puerto Dev: <strong>${remoteInfo.port}</strong></li>
+                                    <li>Rama: <strong>${remoteInfo.branch}</strong></li>
+                                </ul>
+                            </div>
+                            <div class="col-md-6">
+                                <h6>🌐 URLs de Acceso:</h6>
+                                <ul class="small">
+                                    <li>Local: <a href="http://localhost:${remoteInfo.port}" target="_blank">http://localhost:${remoteInfo.port}</a></li>
+                                    ${remoteInfo.tailscale_ip ? `<li>Tailscale: <a href="http://mini-server:${remoteInfo.port}" target="_blank">http://mini-server:${remoteInfo.port}</a></li>` : ''}
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    // Eliminar modal anterior si existe
+    const existingModal = document.getElementById('remoteDevModal');
+    if (existingModal) {
+        existingModal.remove();
+    }
+    
+    // Añadir modal al DOM
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+    
+    // Mostrar modal
+    const modal = new bootstrap.Modal(document.getElementById('remoteDevModal'));
+    modal.show();
+    
+    showNotification('Desarrollo remoto preparado correctamente', 'success');
+}
+
+// Función auxiliar para copiar al clipboard
+function copyToClipboard(elementId) {
+    const element = document.getElementById(elementId);
+    element.select();
+    document.execCommand('copy');
+    showNotification('Copiado al portapapeles', 'success');
 }
