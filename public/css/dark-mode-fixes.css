@@ -351,3 +351,45 @@ body {
 .border.rounded {
     animation: slideIn 0.3s ease-out;
 }
+
+/* Banner de notificaciones de sincronización */
+.sync-notification-banner {
+    padding: 10px 15px !important;
+    margin-bottom: 10px !important;
+    font-size: 14px !important;
+}
+
+.sync-notification-banner .notification-item {
+    padding: 5px 10px;
+    background-color: rgba(0,0,0,0.1);
+    border-radius: 4px;
+    display: inline-flex;
+    align-items: center;
+}
+
+[data-theme="dark"] .sync-notification-banner {
+    background-color: #664d00 !important;
+    border-color: #997404 !important;
+    color: #fff !important;
+}
+
+[data-theme="dark"] .sync-notification-banner .notification-item {
+    background-color: rgba(255,255,255,0.1);
+}
+
+[data-theme="dark"] .sync-notification-banner .text-muted {
+    color: #e0e0e0 !important;
+}
+
+[data-theme="dark"] .sync-notification-banner .btn-link {
+    color: #fff !important;
+    opacity: 0.8;
+}
+
+[data-theme="dark"] .sync-notification-banner .btn-link:hover {
+    opacity: 1;
+}
+
+[data-theme="dark"] .sync-notification-banner .btn-close-white {
+    filter: none;
+}

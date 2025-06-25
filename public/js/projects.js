@@ -63,37 +63,31 @@ function updateGlobalNotifications() {
     // Si hay notificaciones, mostrarlas
     if (notifications.length > 0) {
         const alertHtml = `
-            <div class="alert alert-warning alert-dismissible fade show d-flex align-items-center" role="alert">
-                <div class="flex-grow-1">
-                    <h5 class="alert-heading mb-2">
-                        <i class="bi bi-exclamation-triangle-fill me-2"></i>
-                        ¡Tienes proyectos con cambios pendientes!
-                    </h5>
-                    <div class="row">
-                        ${notifications.map(notif => `
-                            <div class="col-md-4 mb-2">
-                                <div class="d-flex align-items-center">
-                                    <i class="bi bi-folder-fill text-${notif.type} me-2"></i>
-                                    <div>
-                                        <strong>${notif.project}:</strong>
-                                        <small class="d-block">${notif.alerts.join(', ')}</small>
-                                    </div>
-                                </div>
-                                <div class="mt-1">
-                                    <button class="btn btn-sm btn-outline-primary" onclick="startProject('${notif.projectId}')">
-                                        <i class="bi bi-eye"></i> Revisar
+            <div class="alert alert-warning alert-dismissible fade show sync-notification-banner" role="alert">
+                <div class="d-flex align-items-center">
+                    <i class="bi bi-exclamation-triangle-fill me-2"></i>
+                    <div class="flex-grow-1">
+                        <strong>Proyectos con cambios pendientes:</strong>
+                        <div class="d-flex flex-wrap gap-3 mt-2">
+                            ${notifications.map(notif => `
+                                <div class="notification-item">
+                                    <i class="bi bi-folder-fill text-${notif.type} me-1"></i>
+                                    <strong>${notif.project}:</strong>
+                                    <span class="text-muted small">${notif.alerts.join(', ')}</span>
+                                    <button class="btn btn-sm btn-link p-0 ms-2" onclick="startProject('${notif.projectId}')">
+                                        <i class="bi bi-eye"></i>
                                     </button>
                                     ${notif.type === 'danger' ? `
-                                        <button class="btn btn-sm btn-danger" onclick="deployProject('${notif.projectId}')">
-                                            <i class="bi bi-arrow-repeat"></i> Re-deploy
+                                        <button class="btn btn-sm btn-link text-danger p-0 ms-1" onclick="deployProject('${notif.projectId}')">
+                                            <i class="bi bi-arrow-repeat"></i>
                                         </button>
                                     ` : ''}
                                 </div>
-                            </div>
-                        `).join('')}
+                            `).join('')}
+                        </div>
                     </div>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="alert"></button>
                 </div>
-                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
             </div>
         `;
         
