@@ -72,6 +72,24 @@ function streamLogs(socket, source, app) {
     });
 }
 
+// API: Puertos en uso
+app.get('/api/system/ports', async (req, res) => {
+    try {
+        const { stdout } = await execPromise(
+            `lsof -i -P | grep LISTEN | grep -E ":(3[0-9]{3}|[4-9][0-9]{3})" | awk '{print $9}' | cut -d: -f2 | sort -nu`
+        );
+        
+        const ports = stdout.trim().split('\n').filter(p => p).map(p => parseInt(p));
+        
+        res.json({ 
+            ports: ports,
+            count: ports.length 
+        });
+    } catch (error) {
+        res.json({ ports: [], count: 0 });
+    }
+});
+
 // API: Estado del sistema mejorado
 app.get('/api/system/status', async (req, res) => {
     try {
@@ -897,9 +915,17 @@ app.post('/api/projects/:projectId/deploy', async (req, res) => {
             return res.status(404).json({ error: 'Proyecto no encontrado' });
         }
 
+        // Verificar que se proporcionó puerto
+        if (!port) {
+            return res.status(400).json({ 
+                error: 'El puerto es obligatorio para el deploy',
+                message: 'Debes especificar un puerto para el deploy'
+            });
+        }
+        
         // Ejecutar script de deploy
         const deployScript = '/Users/mini-server/project-management/scripts/project-deploy.sh';
-        const deployCommand = `"${deployScript}" "${projectPath}"${subdomain ? ` "${subdomain}"` : ''}${port ? ` "${port}"` : ''}`;
+        const deployCommand = `"${deployScript}" "${projectPath}" "${subdomain || projectId}" "${port}"`;
         
         console.log('Ejecutando deploy:', deployCommand);
         

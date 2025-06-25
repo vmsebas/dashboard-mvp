@@ -620,10 +620,16 @@ function showDeployConfigModal(projectId) {
                                 <div class="form-text">URL final: https://[subdominio].lisbontiles.com</div>
                             </div>
                             <div class="mb-3">
-                                <label for="port" class="form-label">Puerto (opcional)</label>
+                                <label for="port" class="form-label">Puerto <span class="text-danger">*</span></label>
                                 <input type="number" class="form-control" id="port" 
-                                       placeholder="3000" min="1000" max="65535">
-                                <div class="form-text">Deja vacío para usar puerto automático</div>
+                                       placeholder="8500" min="1000" max="65535" required>
+                                <div class="form-text">
+                                    <strong>Puertos recomendados:</strong> 4200, 4500, 4800, 5200, 5500, 5800, 6200, 6500, 6800, 7200, 7500, 7800, 8200, 8500, 8800<br>
+                                    <strong class="text-warning">Evitar:</strong> 3000, 5000, 8000, 8080 (comúnmente usados)
+                                </div>
+                            </div>
+                            <div class="mb-3" id="portsInUse">
+                                <div class="text-muted small">Cargando puertos en uso...</div>
                             </div>
                             <div class="alert alert-info">
                                 <i class="bi bi-info-circle"></i>
@@ -658,6 +664,32 @@ function showDeployConfigModal(projectId) {
     // Mostrar modal
     const modal = new bootstrap.Modal(document.getElementById('deployConfigModal'));
     modal.show();
+    
+    // Cargar puertos en uso
+    loadPortsInUse();
+}
+
+async function loadPortsInUse() {
+    try {
+        const response = await fetch('/api/system/ports');
+        const data = await response.json();
+        
+        const portsContainer = document.getElementById('portsInUse');
+        if (data.ports && data.ports.length > 0) {
+            portsContainer.innerHTML = `
+                <div class="alert alert-warning p-2">
+                    <strong class="small">Puertos actualmente en uso:</strong>
+                    <div class="mt-1">
+                        ${data.ports.map(port => `<span class="badge bg-secondary me-1">${port}</span>`).join('')}
+                    </div>
+                </div>
+            `;
+        } else {
+            portsContainer.innerHTML = '';
+        }
+    } catch (error) {
+        console.error('Error cargando puertos:', error);
+    }
 }
 
 async function executeDeploy(projectId) {
@@ -667,6 +699,11 @@ async function executeDeploy(projectId) {
     
     if (!subdomain) {
         showNotification('El subdominio es requerido', 'error');
+        return;
+    }
+    
+    if (!port) {
+        showNotification('El puerto es obligatorio', 'error');
         return;
     }
     
