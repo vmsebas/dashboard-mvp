@@ -407,18 +407,31 @@ body {
 }
 
 /* Panel de sincronización (el azul que queremos cambiar) */
+.alert-info#sync-summary,
 #sync-summary.alert-info {
     background-color: #fff3cd !important;
     border-color: #ffecb5 !important;
     color: #664d00 !important;
 }
 
+/* Override Bootstrap's alert-info text colors */
+#sync-summary.alert-info .alert-heading,
+#sync-summary.alert-info h6,
+#sync-summary.alert-info .metric-label,
+#sync-summary.alert-info .metric-value {
+    color: #664d00 !important;
+}
+
+[data-theme="dark"] .alert-info#sync-summary,
 [data-theme="dark"] #sync-summary.alert-info {
     background-color: #3d3d3d !important;
     border-color: #495057 !important;
     color: #e9ecef !important;
 }
 
-[data-theme="dark"] #sync-summary .alert-heading {
+[data-theme="dark"] #sync-summary .alert-heading,
+[data-theme="dark"] #sync-summary h6,
+[data-theme="dark"] #sync-summary .metric-label,
+[data-theme="dark"] #sync-summary .metric-value {
     color: #ffc107 !important;
 }

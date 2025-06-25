@@ -374,6 +374,19 @@
             background-color: transparent !important;
             color: var(--text-primary) !important;
         }
+        
+        /* Override Bootstrap alert-info for sync panel */
+        #sync-summary.alert-info {
+            background-color: #fff3cd !important;
+            border-color: #ffecb5 !important;
+            color: #664d00 !important;
+        }
+        
+        #sync-summary.alert-info .alert-heading,
+        #sync-summary.alert-info .metric-value,
+        #sync-summary.alert-info .metric-label {
+            color: inherit !important;
+        }
     </style>
 </head>
 <body>
