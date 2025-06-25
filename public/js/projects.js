@@ -252,7 +252,8 @@ function renderProjects() {
                 </div>
             </div>
         </div>
-    `).join('');
+    `;
+    }).join('');
 }
 
 function getStatusBadge(status) {
