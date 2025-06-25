@@ -1120,6 +1120,73 @@ app.get('/api/projects/history/:type', async (req, res) => {
     }
 });
 
+// API: Obtener archivos MD de un proyecto
+app.get('/api/projects/:projectId/docs', async (req, res) => {
+    const { projectId } = req.params;
+    
+    try {
+        // Encontrar el proyecto
+        const allProjects = await getAllProjects();
+        const project = allProjects.find(p => p.id === projectId);
+        
+        if (!project) {
+            return res.status(404).json({ error: 'Proyecto no encontrado' });
+        }
+        
+        const projectPath = project.path;
+        const mdFiles = [];
+        
+        // Buscar archivos .md en el directorio del proyecto
+        const searchPaths = [
+            projectPath,
+            path.join(projectPath, 'docs'),
+            path.join(projectPath, 'documentation')
+        ];
+        
+        for (const searchPath of searchPaths) {
+            if (fs.existsSync(searchPath)) {
+                const files = await fsPromises.readdir(searchPath);
+                
+                for (const file of files) {
+                    if (file.endsWith('.md') || file.endsWith('.MD')) {
+                        const filePath = path.join(searchPath, file);
+                        const stats = await fsPromises.stat(filePath);
+                        
+                        if (stats.isFile()) {
+                            try {
+                                const content = await fsPromises.readFile(filePath, 'utf8');
+                                mdFiles.push({
+                                    name: file,
+                                    path: filePath.replace(projectPath, ''),
+                                    content: content,
+                                    size: stats.size,
+                                    modified: stats.mtime
+                                });
+                            } catch (readError) {
+                                console.error(`Error leyendo ${file}:`, readError);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        res.json({
+            success: true,
+            project: project.name,
+            files: mdFiles,
+            count: mdFiles.length
+        });
+        
+    } catch (error) {
+        console.error('Error obteniendo documentación:', error);
+        res.status(500).json({ 
+            error: error.message,
+            success: false
+        });
+    }
+});
+
 // API: Estadísticas de operaciones
 app.get('/api/projects/stats', async (req, res) => {
     try {

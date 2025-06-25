@@ -88,8 +88,8 @@ function renderProjects() {
                     </div>
 
                     <div class="d-grid gap-2">
-                        <button class="btn btn-primary btn-sm" onclick="viewProjectInfo('${project.id}')">
-                            <i class="bi bi-info-circle"></i> Ver Información
+                        <button class="btn btn-primary btn-sm" onclick="showProjectDocs('${project.id}')">
+                            <i class="bi bi-file-earmark-text"></i> Ver Documentación
                         </button>
                         <div class="btn-group" role="group">
                             <button class="btn btn-outline-success btn-sm" onclick="startProject('${project.id}')"
@@ -790,4 +790,140 @@ function showNotification(message, type = 'info') {
             notification.remove();
         }
     }, 5000);
+}
+
+// Función para mostrar documentación MD del proyecto
+async function showProjectDocs(projectId) {
+    try {
+        const response = await fetch(`/api/projects/${projectId}/docs`);
+        const data = await response.json();
+        
+        if (!data.success) {
+            showNotification('Error al cargar la documentación', 'error');
+            return;
+        }
+        
+        // Crear modal para mostrar documentación
+        const modal = document.createElement('div');
+        modal.innerHTML = `
+            <div class="modal fade" id="docsModal" tabindex="-1">
+                <div class="modal-dialog modal-xl">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title">
+                                <i class="bi bi-file-earmark-text"></i> 
+                                Documentación de ${data.project}
+                            </h5>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                        </div>
+                        <div class="modal-body">
+                            ${data.files.length === 0 ? `
+                                <div class="alert alert-info">
+                                    <i class="bi bi-info-circle"></i> 
+                                    No se encontraron archivos de documentación (.md) en este proyecto.
+                                </div>
+                            ` : `
+                                <div class="row">
+                                    <div class="col-md-3">
+                                        <h6>Archivos de documentación</h6>
+                                        <div class="list-group" id="docsList">
+                                            ${data.files.map((file, index) => `
+                                                <a href="#" class="list-group-item list-group-item-action ${index === 0 ? 'active' : ''}"
+                                                   onclick="showDocContent(${index}); return false;"
+                                                   data-file-index="${index}">
+                                                    <i class="bi bi-file-text"></i> ${file.name}
+                                                    <small class="d-block text-muted">${file.path}</small>
+                                                </a>
+                                            `).join('')}
+                                        </div>
+                                    </div>
+                                    <div class="col-md-9">
+                                        <div id="docContent" style="max-height: 70vh; overflow-y: auto;">
+                                            <!-- Contenido del documento -->
+                                        </div>
+                                    </div>
+                                </div>
+                            `}
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        document.body.appendChild(modal.firstElementChild);
+        
+        // Guardar los archivos en el window para acceso global
+        window.currentDocs = data.files;
+        
+        // Mostrar el primer archivo si existe
+        if (data.files.length > 0) {
+            showDocContent(0);
+        }
+        
+        // Mostrar modal
+        const docsModal = new bootstrap.Modal(document.getElementById('docsModal'));
+        docsModal.show();
+        
+        // Limpiar cuando se cierre
+        document.getElementById('docsModal').addEventListener('hidden.bs.modal', function () {
+            this.remove();
+            delete window.currentDocs;
+        });
+        
+    } catch (error) {
+        console.error('Error:', error);
+        showNotification('Error al cargar la documentación', 'error');
+    }
+}
+
+// Función para mostrar el contenido de un documento específico
+function showDocContent(index) {
+    if (!window.currentDocs || !window.currentDocs[index]) return;
+    
+    const file = window.currentDocs[index];
+    const contentDiv = document.getElementById('docContent');
+    
+    // Actualizar lista activa
+    document.querySelectorAll('#docsList .list-group-item').forEach((item, i) => {
+        item.classList.toggle('active', i === index);
+    });
+    
+    // Convertir Markdown a HTML (básico)
+    let html = file.content
+        .replace(/^### (.*$)/gim, '<h5>$1</h5>')
+        .replace(/^## (.*$)/gim, '<h4>$1</h4>')
+        .replace(/^# (.*$)/gim, '<h3>$1</h3>')
+        .replace(/^\* (.+)/gim, '<li>$1</li>')
+        .replace(/```(\w+)?\n([\s\S]*?)```/g, '<pre><code class="language-$1">$2</code></pre>')
+        .replace(/`([^`]+)`/g, '<code>$1</code>')
+        .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+        .replace(/\*([^*]+)\*/g, '<em>$1</em>')
+        .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>')
+        .replace(/\n/g, '<br>');
+    
+    // Envolver listas
+    html = html.replace(/(<li>.*<\/li>)/s, '<ul>$1</ul>');
+    
+    contentDiv.innerHTML = `
+        <div class="card">
+            <div class="card-header">
+                <h6 class="mb-0">
+                    <i class="bi bi-file-text"></i> ${file.name}
+                </h6>
+            </div>
+            <div class="card-body">
+                <div class="markdown-content">
+                    ${html}
+                </div>
+            </div>
+        </div>
+    `;
+    
+    // Aplicar resaltado de sintaxis si Prism está disponible
+    if (typeof Prism !== 'undefined') {
+        Prism.highlightAllUnder(contentDiv);
+    }
 }

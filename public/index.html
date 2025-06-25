@@ -233,6 +233,70 @@
             color: #000;
         }
 
+        /* Estilos para documentación Markdown */
+        .markdown-content {
+            font-size: 16px;
+            line-height: 1.6;
+        }
+        
+        .markdown-content h3 {
+            margin-top: 1.5rem;
+            margin-bottom: 1rem;
+            color: var(--text-primary);
+            border-bottom: 2px solid var(--border-color);
+            padding-bottom: 0.3rem;
+        }
+        
+        .markdown-content h4 {
+            margin-top: 1.3rem;
+            margin-bottom: 0.8rem;
+            color: var(--text-primary);
+        }
+        
+        .markdown-content h5 {
+            margin-top: 1rem;
+            margin-bottom: 0.6rem;
+            color: var(--text-primary);
+        }
+        
+        .markdown-content pre {
+            background-color: var(--bg-secondary);
+            padding: 1rem;
+            border-radius: 0.5rem;
+            overflow-x: auto;
+            margin: 1rem 0;
+        }
+        
+        .markdown-content code {
+            background-color: var(--bg-secondary);
+            padding: 0.2rem 0.4rem;
+            border-radius: 0.25rem;
+            font-size: 0.9em;
+            color: #e83e8c;
+        }
+        
+        .markdown-content pre code {
+            background-color: transparent;
+            padding: 0;
+            color: inherit;
+        }
+        
+        .markdown-content ul {
+            margin: 1rem 0;
+            padding-left: 2rem;
+        }
+        
+        .markdown-content li {
+            margin: 0.5rem 0;
+        }
+        
+        .markdown-content blockquote {
+            border-left: 4px solid var(--border-color);
+            padding-left: 1rem;
+            margin: 1rem 0;
+            color: var(--text-secondary);
+        }
+
         .loading-spinner {
             display: inline-block;
             width: 1rem;
