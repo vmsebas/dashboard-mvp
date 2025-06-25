@@ -600,3 +600,45 @@ pm2 restart server-dashboard-mvp
 - **Local**: http://localhost:3000
 
 
+
+
+## Project Deploy Information
+
+**Deployed:** 2025-06-25 16:08:22
+**Status:** ✅ Successfully Deployed
+**URL:** https://server-dashboard-mvp.lisbontiles.com
+
+### Deploy Configuration:
+- **Type**: Node.js (Express.js)
+- **Method**: PM2
+- **Port**: 7777
+- **Subdomain**: server-dashboard-mvp.lisbontiles.com
+- **Server IP**: 85.245.221.221
+
+### Services Status:
+- **Application**: ✅ Running on port 7777
+- **Nginx**: ✅ Configured and running
+- **DNS**: ✅ Configured in Cloudflare
+- **SSL**: ✅ Automatic via Cloudflare
+
+### Management Commands:
+```bash
+# Check application status
+pm2 list | grep server-dashboard-mvp
+
+# View logs
+pm2 logs server-dashboard-mvp
+
+# Restart application
+pm2 restart server-dashboard-mvp
+
+# Update and redeploy
+/Users/mini-server/project-management/scripts/project-deploy.sh /Users/mini-server/server-dashboard-mvp server-dashboard-mvp 7777
+```
+
+### Project URLs:
+- **Production (Cloudflare)**: https://server-dashboard-mvp.lisbontiles.com
+- **VPN Access (Tailscale)**: https://mini-server:7777
+- **Local**: http://localhost:7777
+
+

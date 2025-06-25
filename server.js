@@ -1734,8 +1734,10 @@ setInterval(async () => {
 }, 5000);
 
 // Iniciar servidor
-server.listen(8888, () => {
-    console.log('✅ Dashboard completo ejecutándose en http://localhost:8888');
+const PORT = process.env.PORT || 8888;
+
+server.listen(PORT, () => {
+    console.log(`✅ Dashboard completo ejecutándose en http://localhost:${PORT}`);
     console.log('🌙 Modo oscuro incluido');
     console.log('📊 Gestión completa de bases de datos');
     console.log('🚀 Deploy desde GitHub');
