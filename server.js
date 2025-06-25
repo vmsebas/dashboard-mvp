@@ -148,11 +148,34 @@ app.get('/api/system/status', async (req, res) => {
 // API: Estado de aplicaciones (PM2 + Docker)
 app.get('/api/apps/status', async (req, res) => {
     try {
+        // Cargar registro de aplicaciones para obtener puertos
+        const appsRegistry = {};
+        try {
+            const registryPath = '/Users/mini-server/server-config/apps-registry.json';
+            if (fs.existsSync(registryPath)) {
+                const registryData = JSON.parse(fs.readFileSync(registryPath, 'utf8'));
+                Object.assign(appsRegistry, registryData.apps || {});
+            }
+        } catch (err) {
+            console.error('Error leyendo apps-registry.json:', err);
+        }
+        
         // PM2 apps
         let pm2Apps = [];
         try {
             const { stdout: pm2Data } = await execPromise('pm2 jlist');
-            pm2Apps = JSON.parse(pm2Data || '[]');
+            const pm2List = JSON.parse(pm2Data || '[]');
+            
+            // Enriquecer con datos del registro
+            pm2Apps = pm2List.map(app => {
+                const registryData = appsRegistry[app.name] || {};
+                return {
+                    ...app,
+                    port: registryData.port || app.pm2_env?.env?.PORT || null,
+                    domain: registryData.domain || null,
+                    url: registryData.domain ? `https://${registryData.domain}` : null
+                };
+            });
         } catch (e) {
             console.log('PM2 no disponible');
         }
@@ -173,6 +196,22 @@ app.get('/api/apps/status', async (req, res) => {
             docker: dockerApps
         });
     } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// API: Registro de aplicaciones
+app.get('/api/apps/registry', async (req, res) => {
+    try {
+        const registryPath = '/Users/mini-server/server-config/apps-registry.json';
+        if (fs.existsSync(registryPath)) {
+            const registryData = JSON.parse(fs.readFileSync(registryPath, 'utf8'));
+            res.json(registryData);
+        } else {
+            res.json({ apps: {} });
+        }
+    } catch (error) {
+        console.error('Error leyendo apps-registry.json:', error);
         res.status(500).json({ error: error.message });
     }
 });

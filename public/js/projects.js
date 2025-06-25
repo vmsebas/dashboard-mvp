@@ -464,7 +464,7 @@ function showProjectCloseResult(result) {
 
                         <!-- Estado específico según resultado -->
                         ${result.gitInitialized ? `
-                            <div class="alert alert-info">
+                            <div class="alert alert-secondary">
                                 <i class="bi bi-git"></i> 
                                 <strong>Repositorio Git inicializado</strong><br>
                                 Este proyecto no tenía Git configurado. Se ha inicializado automáticamente con todas las mejores prácticas.
@@ -569,7 +569,7 @@ function showProjectCloseResult(result) {
 
 async function deployProject(projectId) {
     // Mostrar modal de configuración de deploy
-    showDeployConfigModal(projectId);
+    await showDeployConfigModal(projectId);
 }
 
 async function startProject(projectId) {
@@ -591,16 +591,34 @@ async function startProject(projectId) {
         // Mostrar análisis del proyecto
         showProjectAnalysis(result);
         
+        // Actualizar lista de proyectos después de iniciar
+        setTimeout(loadProjects, 2000);
+        
     } catch (error) {
         console.error('Error analizando proyecto:', error);
         showNotification(`Error: ${error.message}`, 'error');
     }
 }
 
-function showDeployConfigModal(projectId) {
+async function showDeployConfigModal(projectId) {
     // Buscar el proyecto para verificar si tiene cambios
     const project = projects.find(p => p.id === projectId);
     const hasUncommittedChanges = project?.gitStatus?.needsCommit || false;
+    
+    // Cargar el puerto actual del registro de aplicaciones
+    let currentPort = null;
+    let currentDomain = null;
+    try {
+        const response = await fetch('/api/apps/registry');
+        const data = await response.json();
+        // projectId es el nombre del proyecto (ej: "MiGestPro")
+        if (data.apps && data.apps[project.name]) {
+            currentPort = data.apps[project.name].port;
+            currentDomain = data.apps[project.name].domain;
+        }
+    } catch (error) {
+        console.error('Error cargando registro de aplicaciones:', error);
+    }
     
     const modalHtml = `
         <div class="modal fade" id="deployConfigModal" tabindex="-1">
@@ -621,12 +639,21 @@ function showDeployConfigModal(projectId) {
                             </div>
                         ` : ''}
                         
+                        ${currentPort ? `
+                            <div class="alert alert-secondary">
+                                <i class="bi bi-info-circle"></i>
+                                <strong>Configuración actual detectada:</strong><br>
+                                <small>Puerto: <strong>${currentPort}</strong></small>
+                                ${currentDomain ? `<br><small>Dominio: <strong>${currentDomain}</strong></small>` : ''}
+                            </div>
+                        ` : ''}
+                        
                         <form id="deployConfigForm">
                             <div class="mb-3">
                                 <label for="subdomain" class="form-label">Subdominio</label>
                                 <div class="input-group">
                                     <input type="text" class="form-control" id="subdomain" 
-                                           placeholder="${projectId}" value="${projectId}">
+                                           placeholder="${projectId}" value="${currentDomain ? currentDomain.split('.')[0] : projectId}">
                                     <span class="input-group-text">.lisbontiles.com</span>
                                 </div>
                                 <div class="form-text">URL final: https://[subdominio].lisbontiles.com</div>
@@ -635,11 +662,19 @@ function showDeployConfigModal(projectId) {
                                 <label for="port" class="form-label">Puerto <span class="text-danger">*</span></label>
                                 <div class="input-group">
                                     <input type="number" class="form-control" id="port" 
-                                           placeholder="8500" min="1000" max="65535" required>
+                                           placeholder="${currentPort || '8500'}" value="${currentPort || ''}" min="1000" max="65535" required>
                                     <button class="btn btn-outline-secondary" type="button" id="suggestPortBtn">
                                         <i class="bi bi-lightbulb"></i> Sugerir
                                     </button>
                                 </div>
+                                ${currentPort ? `
+                                    <div class="form-check mt-2">
+                                        <input class="form-check-input" type="checkbox" id="keepCurrentPort" checked>
+                                        <label class="form-check-label" for="keepCurrentPort">
+                                            Mantener puerto actual (${currentPort})
+                                        </label>
+                                    </div>
+                                ` : ''}
                                 <div class="form-text">
                                     <strong>Puertos recomendados:</strong> 4200, 4500, 4800, 5200, 5500, 5800, 6200, 6500, 6800, 7200, 7500, 7800, 8200, 8500, 8800<br>
                                     <strong class="text-warning">Evitar:</strong> 3000, 5000, 8000, 8080 (comúnmente usados)
@@ -648,7 +683,7 @@ function showDeployConfigModal(projectId) {
                             <div class="mb-3" id="portsInUse">
                                 <div class="text-muted small">Cargando puertos en uso...</div>
                             </div>
-                            <div class="alert alert-info">
+                            <div class="alert alert-secondary">
                                 <i class="bi bi-info-circle"></i>
                                 <strong>El deploy incluye:</strong>
                                 <ul class="mb-0 mt-2">
@@ -686,6 +721,28 @@ function showDeployConfigModal(projectId) {
     // Cargar puertos en uso y configurar eventos
     loadPortsInUse();
     setupPortSuggestions();
+    
+    // Si hay un checkbox de mantener puerto actual, configurar el evento
+    if (currentPort) {
+        const keepPortCheckbox = document.getElementById('keepCurrentPort');
+        const portInput = document.getElementById('port');
+        
+        if (keepPortCheckbox) {
+            keepPortCheckbox.addEventListener('change', function() {
+                if (this.checked) {
+                    portInput.value = currentPort;
+                    portInput.readOnly = true;
+                } else {
+                    portInput.readOnly = false;
+                }
+            });
+            
+            // Inicialmente hacer el campo de solo lectura si el checkbox está marcado
+            if (keepPortCheckbox.checked) {
+                portInput.readOnly = true;
+            }
+        }
+    }
 }
 
 async function loadPortsInUse() {
@@ -857,7 +914,7 @@ function showProjectDeployResult(result) {
                         </div>
 
                         ${result.autoClosed ? `
-                            <div class="alert alert-info mb-3">
+                            <div class="alert alert-secondary mb-3">
                                 <i class="bi bi-check-circle"></i>
                                 <strong>Auto-cierre ejecutado</strong><br>
                                 <small>Se detectó cambios sin commitear y el proyecto fue cerrado automáticamente con la nueva versión <strong>${result.newVersion || 'N/A'}</strong> antes del deploy.</small>
@@ -985,7 +1042,7 @@ function showProjectStartResult(result) {
                             </div>
                         ` : ''}
 
-                        <div class="alert alert-info">
+                        <div class="alert alert-secondary">
                             <i class="bi bi-lightbulb"></i>
                             <strong>Proyecto listo para desarrollo</strong><br>
                             ${result.localUrl ? `Puedes acceder a tu aplicación en: <a href="${result.localUrl}" target="_blank">${result.localUrl}</a>` : 'El entorno está preparado para desarrollo'}
@@ -1035,7 +1092,7 @@ async function copyToClipboard(text) {
 function showNotification(message, type = 'info') {
     const alertClass = type === 'error' ? 'alert-danger' : 
                       type === 'success' ? 'alert-success' : 
-                      type === 'warning' ? 'alert-warning' : 'alert-info';
+                      type === 'warning' ? 'alert-warning' : 'alert-secondary';
     
     const notification = document.createElement('div');
     notification.className = `alert ${alertClass} alert-dismissible fade show notification`;
@@ -1204,7 +1261,7 @@ async function showProjectDocs(projectId) {
                         </div>
                         <div class="modal-body">
                             ${data.files.length === 0 ? `
-                                <div class="alert alert-info">
+                                <div class="alert alert-secondary">
                                     <i class="bi bi-info-circle"></i> 
                                     No se encontraron archivos de documentación (.md) en este proyecto.
                                 </div>
@@ -1403,7 +1460,7 @@ function showProjectAnalysis(result) {
     let stepsHtml = '';
     if (analysis.next_steps && analysis.next_steps.length > 0) {
         stepsHtml = `
-            <div class="alert alert-info">
+            <div class="alert alert-secondary">
                 <h6><i class="bi bi-lightbulb"></i> Recomendaciones:</h6>
                 <ul class="mb-0">
                     ${analysis.next_steps.map(step => 
@@ -1526,7 +1583,7 @@ function continueToWarp(projectId, sshCommand, branch) {
     
     // Mostrar instrucciones
     const instructionsHtml = `
-        <div class="alert alert-info alert-dismissible fade show" role="alert">
+        <div class="alert alert-secondary alert-dismissible fade show" role="alert">
             <h5 class="alert-heading"><i class="bi bi-terminal"></i> Conectando a Desarrollo Remoto</h5>
             <p>El comando ha sido copiado al portapapeles. Pégalo en tu Terminal local:</p>
             <code>${warpCommand}</code>

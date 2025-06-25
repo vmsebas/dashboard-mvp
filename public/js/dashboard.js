@@ -131,12 +131,17 @@ async function loadApplications() {
             const isPM2 = app.pm2_env !== undefined;
             const status = isPM2 ? app.pm2_env.status : app.State;
             const statusClass = getStatusClass(status);
-            const port = isPM2 ? (app.pm2_env.env?.PORT || '--') : (app.Ports || '--');
+            // Usar puerto del registro si está disponible
+            const port = isPM2 ? (app.port || app.pm2_env.env?.PORT || '--') : (app.Ports || '--');
+            const url = app.url;
             
             return `
                 <tr class="fade-in">
                     <td><span class="app-status ${statusClass}"></span></td>
-                    <td>${isPM2 ? app.name : app.Names}</td>
+                    <td>
+                        ${isPM2 ? app.name : app.Names}
+                        ${url ? `<a href="${url}" target="_blank" class="ms-2 text-decoration-none" title="Abrir aplicación"><i class="bi bi-box-arrow-up-right"></i></a>` : ''}
+                    </td>
                     <td><span class="badge bg-secondary">${isPM2 ? 'PM2' : 'Docker'}</span></td>
                     <td>${port}</td>
                     <td>${isPM2 ? app.monit.cpu : '--'}%</td>

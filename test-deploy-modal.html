@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Deploy Modal</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
+</head>
+<body>
+    <div class="container mt-5">
+        <h1>Test Deploy Modal with Current Port</h1>
+        <div class="mb-3">
+            <button class="btn btn-primary" onclick="testDeployModal('MiGestPro')">
+                Test Deploy MiGestPro
+            </button>
+            <button class="btn btn-primary" onclick="testDeployModal('server-dashboard-mvp')">
+                Test Deploy server-dashboard-mvp
+            </button>
+            <button class="btn btn-primary" onclick="testDeployModal('iva-api')">
+                Test Deploy iva-api
+            </button>
+            <button class="btn btn-primary" onclick="testDeployModal('new-project')">
+                Test Deploy new-project (sin puerto actual)
+            </button>
+        </div>
+        
+        <div id="notifications"></div>
+        
+        <h2 class="mt-4">API Response:</h2>
+        <pre id="api-response" class="bg-light p-3"></pre>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Mock projects array
+        const projects = [
+            { id: 'MiGestPro', gitStatus: { needsCommit: false } },
+            { id: 'server-dashboard-mvp', gitStatus: { needsCommit: true } },
+            { id: 'iva-api', gitStatus: { needsCommit: false } },
+            { id: 'new-project', gitStatus: { needsCommit: false } }
+        ];
+        
+        // Mock window.portsInUse
+        window.portsInUse = [];
+        
+        // Test API endpoint
+        async function testAPI() {
+            try {
+                const response = await fetch('/api/apps/registry');
+                const data = await response.json();
+                document.getElementById('api-response').textContent = JSON.stringify(data, null, 2);
+            } catch (error) {
+                document.getElementById('api-response').textContent = 'Error: ' + error.message;
+            }
+        }
+        
+        // Call API on load
+        testAPI();
+        
+        // Copy the showDeployConfigModal function from projects.js
+        async function showDeployConfigModal(projectId) {
+            // Buscar el proyecto para verificar si tiene cambios
+            const project = projects.find(p => p.id === projectId);
+            const hasUncommittedChanges = project?.gitStatus?.needsCommit || false;
+            
+            // Cargar el puerto actual del registro de aplicaciones
+            let currentPort = null;
+            let currentDomain = null;
+            try {
+                const response = await fetch('/api/apps/registry');
+                const data = await response.json();
+                if (data.apps && data.apps[projectId]) {
+                    currentPort = data.apps[projectId].port;
+                    currentDomain = data.apps[projectId].domain;
+                }
+            } catch (error) {
+                console.error('Error cargando registro de aplicaciones:', error);
+            }
+            
+            const modalHtml = `
+                <div class="modal fade" id="deployConfigModal" tabindex="-1">
+                    <div class="modal-dialog">
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <h5 class="modal-title">
+                                    <i class="bi bi-rocket"></i> Configurar Deploy - ${projectId}
+                                </h5>
+                                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                            </div>
+                            <div class="modal-body">
+                                ${hasUncommittedChanges ? `
+                                    <div class="alert alert-warning">
+                                        <i class="bi bi-exclamation-triangle"></i>
+                                        <strong>Cambios sin commitear detectados</strong><br>
+                                        <small>El script de deploy cerrará automáticamente el proyecto y creará un commit con los cambios pendientes antes de continuar.</small>
+                                    </div>
+                                ` : ''}
+                                
+                                ${currentPort ? `
+                                    <div class="alert alert-info">
+                                        <i class="bi bi-info-circle"></i>
+                                        <strong>Configuración actual detectada:</strong><br>
+                                        <small>Puerto: <strong>${currentPort}</strong></small>
+                                        ${currentDomain ? `<br><small>Dominio: <strong>${currentDomain}</strong></small>` : ''}
+                                    </div>
+                                ` : ''}
+                                
+                                <form id="deployConfigForm">
+                                    <div class="mb-3">
+                                        <label for="subdomain" class="form-label">Subdominio</label>
+                                        <div class="input-group">
+                                            <input type="text" class="form-control" id="subdomain" 
+                                                   placeholder="${projectId}" value="${currentDomain ? currentDomain.split('.')[0] : projectId}">
+                                            <span class="input-group-text">.lisbontiles.com</span>
+                                        </div>
+                                        <div class="form-text">URL final: https://[subdominio].lisbontiles.com</div>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label for="port" class="form-label">Puerto <span class="text-danger">*</span></label>
+                                        <div class="input-group">
+                                            <input type="number" class="form-control" id="port" 
+                                                   placeholder="${currentPort || '8500'}" value="${currentPort || ''}" min="1000" max="65535" required>
+                                            <button class="btn btn-outline-secondary" type="button" id="suggestPortBtn">
+                                                <i class="bi bi-lightbulb"></i> Sugerir
+                                            </button>
+                                        </div>
+                                        ${currentPort ? `
+                                            <div class="form-check mt-2">
+                                                <input class="form-check-input" type="checkbox" id="keepCurrentPort" checked>
+                                                <label class="form-check-label" for="keepCurrentPort">
+                                                    Mantener puerto actual (${currentPort})
+                                                </label>
+                                            </div>
+                                        ` : ''}
+                                        <div class="form-text">
+                                            <strong>Puertos recomendados:</strong> 4200, 4500, 4800, 5200, 5500, 5800, 6200, 6500, 6800, 7200, 7500, 7800, 8200, 8500, 8800<br>
+                                            <strong class="text-warning">Evitar:</strong> 3000, 5000, 8000, 8080 (comúnmente usados)
+                                        </div>
+                                    </div>
+                                    <div class="mb-3" id="portsInUse">
+                                        <div class="text-muted small">Cargando puertos en uso...</div>
+                                    </div>
+                                    <div class="alert alert-info">
+                                        <i class="bi bi-info-circle"></i>
+                                        <strong>El deploy incluye:</strong>
+                                        <ul class="mb-0 mt-2">
+                                            <li>Configuración automática de Nginx</li>
+                                            <li>DNS en Cloudflare</li>
+                                            <li>SSL automático</li>
+                                            <li>Monitoreo con PM2/Docker</li>
+                                            ${hasUncommittedChanges ? '<li class="text-warning"><strong>Auto-cierre del proyecto con versionado</strong></li>' : ''}
+                                        </ul>
+                                    </div>
+                                </form>
+                            </div>
+                            <div class="modal-footer">
+                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                                <button type="button" class="btn btn-success" onclick="alert('Deploy would execute for: ${projectId}')">
+                                    <i class="bi bi-rocket"></i> Deployar
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            // Remover modal existente si lo hay
+            const existingModal = document.getElementById('deployConfigModal');
+            if (existingModal) existingModal.remove();
+            
+            // Agregar nuevo modal
+            document.body.insertAdjacentHTML('beforeend', modalHtml);
+            
+            // Mostrar modal
+            const modal = new bootstrap.Modal(document.getElementById('deployConfigModal'));
+            modal.show();
+            
+            // Si hay un checkbox de mantener puerto actual, configurar el evento
+            if (currentPort) {
+                const keepPortCheckbox = document.getElementById('keepCurrentPort');
+                const portInput = document.getElementById('port');
+                
+                if (keepPortCheckbox) {
+                    keepPortCheckbox.addEventListener('change', function() {
+                        if (this.checked) {
+                            portInput.value = currentPort;
+                            portInput.readOnly = true;
+                        } else {
+                            portInput.readOnly = false;
+                        }
+                    });
+                    
+                    // Inicialmente hacer el campo de solo lectura si el checkbox está marcado
+                    if (keepPortCheckbox.checked) {
+                        portInput.readOnly = true;
+                    }
+                }
+            }
+        }
+        
+        function showNotification(message, type = 'info') {
+            const alertClass = type === 'error' ? 'alert-danger' : 
+                              type === 'success' ? 'alert-success' : 
+                              type === 'warning' ? 'alert-warning' : 'alert-info';
+            
+            const notification = document.createElement('div');
+            notification.className = `alert ${alertClass} alert-dismissible fade show`;
+            notification.innerHTML = `
+                ${message}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            `;
+            
+            document.getElementById('notifications').appendChild(notification);
+            
+            // Auto-eliminar después de 5 segundos
+            setTimeout(() => {
+                if (notification.parentNode) {
+                    notification.remove();
+                }
+            }, 5000);
+        }
+        
+        async function testDeployModal(projectId) {
+            showNotification(`Testing deploy modal for: ${projectId}`, 'info');
+            await showDeployConfigModal(projectId);
+        }
+    </script>
+</body>
+</html>
