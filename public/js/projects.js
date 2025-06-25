@@ -1,6 +1,7 @@
 // projects.js - Gestión de proyectos desde el dashboard
 
 let projects = [];
+let userRepos = [];
 
 // Cargar proyectos al inicializar
 document.addEventListener('DOMContentLoaded', function() {
@@ -568,8 +569,15 @@ function showProjectCloseResult(result) {
 }
 
 async function deployProject(projectId) {
-    // Mostrar modal de configuración de deploy
-    await showDeployConfigModal(projectId);
+    console.log('deployProject llamado para:', projectId);
+    try {
+        // Mostrar modal de configuración de deploy
+        await showDeployConfigModal(projectId);
+    } catch (error) {
+        console.error('Error mostrando modal de deploy:', error);
+        console.error('Stack trace:', error.stack);
+        showNotification('Error al mostrar configuración de deploy', 'error');
+    }
 }
 
 async function startProject(projectId) {
@@ -601,8 +609,16 @@ async function startProject(projectId) {
 }
 
 async function showDeployConfigModal(projectId) {
+    console.log('==== showDeployConfigModal INICIO ====');
+    console.log('ProjectId recibido:', projectId);
+    console.log('Tipo de projectId:', typeof projectId);
+    console.log('Proyectos disponibles:', projects.map(p => ({ id: p.id, name: p.name, type: typeof p.id })));
+    
     // Buscar el proyecto para verificar si tiene cambios
     const project = projects.find(p => p.id === projectId);
+    console.log('Proyecto encontrado:', project);
+    console.log('==== showDeployConfigModal búsqueda completa ====');
+    
     const hasUncommittedChanges = project?.gitStatus?.needsCommit || false;
     
     // Cargar el puerto actual del registro de aplicaciones
@@ -611,10 +627,47 @@ async function showDeployConfigModal(projectId) {
     try {
         const response = await fetch('/api/apps/registry');
         const data = await response.json();
-        // projectId es el nombre del proyecto (ej: "MiGestPro")
-        if (data.apps && data.apps[project.name]) {
-            currentPort = data.apps[project.name].port;
-            currentDomain = data.apps[project.name].domain;
+        
+        // Buscar en el registro usando diferentes posibles nombres
+        const projectName = project?.name || projectId;
+        let registryEntry = null;
+        
+        // Intentar encontrar la entrada en el registro
+        if (data.apps) {
+            // Buscar por nombre exacto
+            registryEntry = data.apps[projectName];
+            
+            // Si no se encuentra, buscar por ID
+            if (!registryEntry) {
+                registryEntry = data.apps[projectId];
+            }
+            
+            // Si aún no se encuentra, buscar por coincidencias parciales
+            if (!registryEntry) {
+                for (const [key, value] of Object.entries(data.apps)) {
+                    if (key.toLowerCase() === projectName.toLowerCase() || 
+                        key.toLowerCase() === projectId.toLowerCase()) {
+                        registryEntry = value;
+                        break;
+                    }
+                }
+            }
+            
+            // Si aún no se encuentra, buscar por ruta del proyecto
+            if (!registryEntry && project?.path) {
+                for (const [key, value] of Object.entries(data.apps)) {
+                    if (value.path === project.path) {
+                        registryEntry = value;
+                        console.log(`Encontrado por ruta: ${key} -> ${project.path}`);
+                        break;
+                    }
+                }
+            }
+        }
+        
+        if (registryEntry) {
+            currentPort = registryEntry.port;
+            currentDomain = registryEntry.domain;
         }
     } catch (error) {
         console.error('Error cargando registro de aplicaciones:', error);
@@ -715,8 +768,15 @@ async function showDeployConfigModal(projectId) {
     document.body.insertAdjacentHTML('beforeend', modalHtml);
     
     // Mostrar modal
-    const modal = new bootstrap.Modal(document.getElementById('deployConfigModal'));
+    console.log('Creando modal Bootstrap...');
+    const modalElement = document.getElementById('deployConfigModal');
+    console.log('Elemento modal encontrado:', modalElement);
+    
+    const modal = new bootstrap.Modal(modalElement);
+    console.log('Modal Bootstrap creado:', modal);
+    
     modal.show();
+    console.log('Modal.show() ejecutado');
     
     // Cargar puertos en uso y configurar eventos
     loadPortsInUse();
@@ -743,6 +803,8 @@ async function showDeployConfigModal(projectId) {
             }
         }
     }
+    
+    console.log('==== showDeployConfigModal COMPLETADO ====');
 }
 
 async function loadPortsInUse() {
@@ -1745,4 +1807,247 @@ function copyToClipboard(elementId) {
     element.select();
     document.execCommand('copy');
     showNotification('Copiado al portapapeles', 'success');
+}
+
+// Función para mostrar modal de clonar desde GitHub
+async function showGitHubCloneModal() {
+    const modalHtml = `
+        <div class="modal fade" id="githubCloneModal" tabindex="-1">
+            <div class="modal-dialog modal-lg">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">
+                            <i class="bi bi-github"></i> Clonar Repositorio desde GitHub
+                        </h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="mb-3">
+                            <button class="btn btn-primary w-100" onclick="loadUserRepos()">
+                                <i class="bi bi-download"></i> Cargar mis repositorios
+                            </button>
+                        </div>
+                        
+                        <div id="reposListContainer" style="display: none;">
+                            <div class="mb-3">
+                                <input type="text" class="form-control" id="repoSearch" placeholder="Buscar repositorio..." onkeyup="filterRepos()">
+                            </div>
+                            
+                            <div class="alert alert-info">
+                                <i class="bi bi-info-circle"></i> Selecciona un repositorio para clonarlo. Se analizará automáticamente y se guardará en la carpeta correcta.
+                            </div>
+                            
+                            <div id="reposList" class="list-group" style="max-height: 400px; overflow-y: auto;">
+                                <!-- Los repos se cargarán aquí -->
+                            </div>
+                        </div>
+                        
+                        <div id="reposLoading" style="display: none;" class="text-center">
+                            <span class="loading-spinner"></span> Cargando repositorios...
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    // Remover modal existente si lo hay
+    const existingModal = document.getElementById('githubCloneModal');
+    if (existingModal) existingModal.remove();
+    
+    // Agregar nuevo modal
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+    
+    // Mostrar modal
+    const modal = new bootstrap.Modal(document.getElementById('githubCloneModal'));
+    modal.show();
+}
+
+// Cargar repositorios del usuario
+async function loadUserRepos() {
+    document.getElementById('reposLoading').style.display = 'block';
+    document.getElementById('reposListContainer').style.display = 'none';
+    
+    try {
+        const response = await fetch('/api/github/repos');
+        const data = await response.json();
+        
+        if (!response.ok) throw new Error(data.error);
+        
+        userRepos = data.repos;
+        displayRepos(userRepos);
+        
+        document.getElementById('reposLoading').style.display = 'none';
+        document.getElementById('reposListContainer').style.display = 'block';
+    } catch (error) {
+        console.error('Error cargando repositorios:', error);
+        showNotification('Error cargando repositorios: ' + error.message, 'error');
+        document.getElementById('reposLoading').style.display = 'none';
+    }
+}
+
+// Mostrar repositorios
+function displayRepos(repos) {
+    const container = document.getElementById('reposList');
+    
+    if (repos.length === 0) {
+        container.innerHTML = '<div class="text-center text-muted p-3">No se encontraron repositorios</div>';
+        return;
+    }
+    
+    container.innerHTML = repos.map(repo => `
+        <div class="list-group-item list-group-item-action" onclick="selectRepo('${repo.full_name}')">
+            <div class="d-flex justify-content-between align-items-start">
+                <div class="flex-grow-1">
+                    <h6 class="mb-1">${repo.name}</h6>
+                    <p class="mb-1 text-muted small">${repo.description || 'Sin descripción'}</p>
+                    <div class="d-flex gap-3 small text-muted">
+                        <span><i class="bi bi-star"></i> ${repo.language || 'No especificado'}</span>
+                        <span><i class="bi bi-eye"></i> ${repo.private ? 'Privado' : 'Público'}</span>
+                        <span><i class="bi bi-clock"></i> ${new Date(repo.updated_at).toLocaleDateString()}</span>
+                    </div>
+                </div>
+                <button class="btn btn-sm btn-success">
+                    <i class="bi bi-download"></i> Clonar
+                </button>
+            </div>
+        </div>
+    `).join('');
+}
+
+// Filtrar repositorios
+function filterRepos() {
+    const search = document.getElementById('repoSearch').value.toLowerCase();
+    const filtered = userRepos.filter(repo => 
+        repo.name.toLowerCase().includes(search) || 
+        (repo.description && repo.description.toLowerCase().includes(search))
+    );
+    displayRepos(filtered);
+}
+
+// Seleccionar y clonar repositorio
+async function selectRepo(repoFullName) {
+    const modal = bootstrap.Modal.getInstance(document.getElementById('githubCloneModal'));
+    modal.hide();
+    
+    showNotification('Clonando repositorio, instalando dependencias...', 'info');
+    
+    try {
+        const response = await fetch('/api/github/clone', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ repo: repoFullName })
+        });
+        
+        const result = await response.json();
+        
+        if (!response.ok) throw new Error(result.error);
+        
+        showNotification(`Repositorio clonado exitosamente en ${result.path}`, 'success');
+        
+        // Recargar la lista de proyectos
+        setTimeout(loadProjects, 1000);
+        
+        // Mostrar información del proyecto clonado
+        showCloneResult(result);
+    } catch (error) {
+        console.error('Error clonando repositorio:', error);
+        showNotification('Error al clonar: ' + error.message, 'error');
+    }
+}
+
+// Mostrar resultado del clon
+function showCloneResult(result) {
+    const modalHtml = `
+        <div class="modal fade" id="cloneResultModal" tabindex="-1">
+            <div class="modal-dialog modal-lg">
+                <div class="modal-content">
+                    <div class="modal-header bg-success text-white">
+                        <h5 class="modal-title">
+                            <i class="bi bi-check-circle"></i> Repositorio Clonado
+                        </h5>
+                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="alert alert-success">
+                            <strong>✅ ${result.repo} clonado exitosamente</strong>
+                        </div>
+                        
+                        <h6>Análisis del proyecto:</h6>
+                        <ul>
+                            <li><strong>Tipo detectado:</strong> ${result.projectType}</li>
+                            <li><strong>Tecnología:</strong> ${result.technology}</li>
+                            <li><strong>Ubicación:</strong> <code>${result.path}</code></li>
+                        </ul>
+                        
+                        <div class="row mt-3">
+                            <div class="col-md-6">
+                                <h6>Detección automática:</h6>
+                                ${result.hasPackageJson ? '<p class="text-success mb-1"><i class="bi bi-check"></i> package.json detectado</p>' : ''}
+                                ${result.hasDockerfile ? '<p class="text-success mb-1"><i class="bi bi-check"></i> Dockerfile detectado</p>' : ''}
+                                ${result.hasRequirements ? '<p class="text-success mb-1"><i class="bi bi-check"></i> requirements.txt detectado</p>' : ''}
+                                ${result.dependenciesInstalled ? '<p class="text-success mb-1"><i class="bi bi-check"></i> Dependencias instaladas</p>' : ''}
+                                ${result.buildExecuted ? '<p class="text-success mb-1"><i class="bi bi-check"></i> Build ejecutado</p>' : ''}
+                            </div>
+                            <div class="col-md-6">
+                                ${result.databasesRequired && result.databasesRequired.length > 0 ? `
+                                    <h6>Bases de datos detectadas:</h6>
+                                    ${result.databasesRequired.map(db => `
+                                        <p class="text-warning mb-1"><i class="bi bi-database"></i> ${db} requerido</p>
+                                    `).join('')}
+                                ` : ''}
+                            </div>
+                        </div>
+                        
+                        ${result.warnings && result.warnings.length > 0 ? `
+                            <div class="alert alert-warning mt-3">
+                                <h6 class="alert-heading"><i class="bi bi-exclamation-triangle"></i> Configuración necesaria:</h6>
+                                <ul class="mb-0">
+                                    ${result.warnings.map(warning => `<li>${warning}</li>`).join('')}
+                                </ul>
+                            </div>
+                        ` : ''}
+                        
+                        <div class="alert alert-info mt-3">
+                            <i class="bi bi-info-circle"></i> El proyecto aparecerá en la lista de proyectos. 
+                            ${result.configurationNeeded ? 
+                                '<strong>Importante:</strong> Configura las variables de entorno y bases de datos antes de hacer deploy.' : 
+                                'Puedes iniciar desarrollo o hacer deploy directamente.'
+                            }
+                        </div>
+                        
+                        <div class="bg-light p-3 rounded">
+                            <h6>Próximos pasos:</h6>
+                            <ol class="mb-0">
+                                ${result.configurationNeeded ? '<li>Configurar variables de entorno en el archivo .env</li>' : ''}
+                                ${result.databasesRequired && result.databasesRequired.length > 0 ? '<li>Configurar conexión a las bases de datos requeridas</li>' : ''}
+                                <li>El proyecto aparecerá en la lista de proyectos</li>
+                                <li>Usa el botón "Iniciar Desarrollo" para comenzar a trabajar</li>
+                                <li>Cuando esté listo, usa "Deploy" para publicarlo</li>
+                            </ol>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-primary" data-bs-dismiss="modal">Entendido</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    // Remover modal existente si lo hay
+    const existingModal = document.getElementById('cloneResultModal');
+    if (existingModal) existingModal.remove();
+    
+    // Agregar nuevo modal
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+    
+    // Mostrar modal
+    const modal = new bootstrap.Modal(document.getElementById('cloneResultModal'));
+    modal.show();
 }

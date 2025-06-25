@@ -1761,6 +1761,327 @@ app.get('/api/projects/:projectId/info', async (req, res) => {
     }
 });
 
+// API: Obtener repositorios de GitHub del usuario
+app.get('/api/github/repos', async (req, res) => {
+    try {
+        const githubToken = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
+        
+        if (!githubToken) {
+            return res.status(400).json({ error: 'GitHub token no configurado' });
+        }
+        
+        // Obtener usuario actual
+        const { stdout: userOutput } = await execPromise(`
+            curl -s -H "Authorization: token ${githubToken}" https://api.github.com/user
+        `);
+        const user = JSON.parse(userOutput);
+        
+        // Obtener repositorios (100 más recientes)
+        const { stdout: reposOutput } = await execPromise(`
+            curl -s -H "Authorization: token ${githubToken}" "https://api.github.com/user/repos?per_page=100&sort=updated"
+        `);
+        const repos = JSON.parse(reposOutput);
+        
+        res.json({
+            user: user.login,
+            repos: repos.map(repo => ({
+                name: repo.name,
+                full_name: repo.full_name,
+                description: repo.description,
+                private: repo.private,
+                language: repo.language,
+                updated_at: repo.updated_at,
+                clone_url: repo.clone_url,
+                html_url: repo.html_url
+            }))
+        });
+    } catch (error) {
+        console.error('Error obteniendo repositorios:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// API: Clonar repositorio de GitHub
+app.post('/api/github/clone', async (req, res) => {
+    const { repo } = req.body;
+    
+    try {
+        const githubToken = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
+        
+        if (!githubToken) {
+            return res.status(400).json({ error: 'GitHub token no configurado' });
+        }
+        
+        // Obtener información del repositorio
+        const repoName = repo.split('/')[1];
+        const cloneUrl = `https://${githubToken}@github.com/${repo}.git`;
+        
+        // Analizar tipo de proyecto clonando temporalmente
+        const tempDir = `/tmp/analyze_${Date.now()}`;
+        await execPromise(`git clone --depth 1 ${cloneUrl} ${tempDir}`);
+        
+        // Detectar tipo de proyecto
+        let projectType = 'general';
+        let technology = 'Unknown';
+        let targetDir = '/Users/mini-server/apps'; // Por defecto
+        
+        const files = await fsPromises.readdir(tempDir);
+        
+        // Detectar tecnología y determinar carpeta destino
+        if (files.includes('package.json')) {
+            projectType = 'node';
+            technology = 'Node.js';
+            targetDir = '/Users/mini-server/apps';
+        } else if (files.includes('requirements.txt') || files.includes('setup.py')) {
+            projectType = 'python';
+            technology = 'Python';
+            targetDir = '/Users/mini-server/apps';
+        } else if (files.includes('docker-compose.yml') || files.includes('Dockerfile')) {
+            projectType = 'docker';
+            technology = 'Docker';
+            targetDir = '/Users/mini-server/docker-apps';
+        } else if (files.includes('index.html') || files.includes('index.htm')) {
+            projectType = 'static';
+            technology = 'Static Website';
+            targetDir = '/Users/mini-server/static-sites';
+        } else if (files.includes('composer.json')) {
+            projectType = 'php';
+            technology = 'PHP';
+            targetDir = '/Users/mini-server/apps';
+        }
+        
+        // Crear directorio destino si no existe
+        await execPromise(`mkdir -p ${targetDir}`);
+        
+        // Clonar en ubicación final
+        const finalPath = `${targetDir}/${repoName}`;
+        
+        // Verificar si ya existe
+        try {
+            await fsPromises.access(finalPath);
+            // Si existe, limpiar temporal y retornar error
+            await execPromise(`rm -rf ${tempDir}`);
+            return res.status(400).json({ error: 'El proyecto ya existe en ' + finalPath });
+        } catch {
+            // No existe, continuar
+        }
+        
+        // Clonar en ubicación final
+        await execPromise(`git clone ${cloneUrl} ${finalPath}`);
+        
+        // Limpiar directorio temporal
+        await execPromise(`rm -rf ${tempDir}`);
+        
+        // Instalar dependencias según el tipo de proyecto
+        console.log(`Instalando dependencias para proyecto ${projectType}...`);
+        
+        if (projectType === 'node' && files.includes('package.json')) {
+            // Instalar dependencias de Node.js
+            await execPromise(`cd ${finalPath} && npm install`);
+            
+            // Verificar si es Next.js y necesita build
+            try {
+                const packageJson = JSON.parse(await fsPromises.readFile(`${finalPath}/package.json`, 'utf8'));
+                
+                // Si tiene script de build, ejecutarlo
+                if (packageJson.scripts && packageJson.scripts.build) {
+                    console.log('Ejecutando build...');
+                    await execPromise(`cd ${finalPath} && npm run build`);
+                }
+                
+                // Detectar si es Next.js con static export
+                if (packageJson.dependencies && packageJson.dependencies.next) {
+                    try {
+                        const nextConfig = await fsPromises.readFile(`${finalPath}/next.config.js`, 'utf8');
+                        if (nextConfig.includes('output:') && nextConfig.includes('export')) {
+                            // Es Next.js static, necesita serve
+                            console.log('Detectado Next.js static export, configurando serve...');
+                            
+                            // Instalar serve globalmente si no está instalado
+                            try {
+                                await execPromise('which serve');
+                            } catch {
+                                console.log('Instalando serve...');
+                                await execPromise('npm install -g serve');
+                            }
+                            
+                            // Modificar el script start para usar serve
+                            packageJson.scripts.start = `serve out -p \${PORT:-3000}`;
+                            await fsPromises.writeFile(
+                                `${finalPath}/package.json`, 
+                                JSON.stringify(packageJson, null, 2)
+                            );
+                        }
+                    } catch (e) {
+                        // No hay next.config.js o error al leer
+                    }
+                }
+                
+                // Verificar y crear archivos de configuración necesarios
+                const configChecks = [
+                    { 
+                        files: ['.env', '.env.local'], 
+                        examples: ['.env.example', '.env.sample', '.env.template', '.env.local.example'],
+                        message: '⚠️ Variables de entorno necesarias'
+                    },
+                    { 
+                        files: ['config.json', 'config.js'], 
+                        examples: ['config.example.json', 'config.sample.json', 'config.example.js'],
+                        message: '⚠️ Archivo de configuración necesario'
+                    }
+                ];
+                
+                for (const check of configChecks) {
+                    let configFileExists = false;
+                    
+                    // Verificar si algún archivo de configuración existe
+                    for (const file of check.files) {
+                        try {
+                            await fsPromises.access(`${finalPath}/${file}`);
+                            configFileExists = true;
+                            break;
+                        } catch {
+                            // No existe
+                        }
+                    }
+                    
+                    // Si no existe ningún archivo de configuración, buscar ejemplos
+                    if (!configFileExists) {
+                        for (const example of check.examples) {
+                            try {
+                                const exampleContent = await fsPromises.readFile(`${finalPath}/${example}`, 'utf8');
+                                console.log(`${check.message}. Copiando desde ${example}...`);
+                                
+                                // Copiar el ejemplo al primer archivo de la lista
+                                const targetFile = check.files[0];
+                                await fsPromises.copyFile(
+                                    `${finalPath}/${example}`,
+                                    `${finalPath}/${targetFile}`
+                                );
+                                console.log(`✅ ${targetFile} creado desde ${example}`);
+                                
+                                // Si es un archivo .env, agregar comentario
+                                if (targetFile.includes('.env')) {
+                                    const content = await fsPromises.readFile(`${finalPath}/${targetFile}`, 'utf8');
+                                    const updatedContent = `# ⚠️ IMPORTANTE: Configurar estas variables antes de hacer deploy\n# Copiado desde ${example} el ${new Date().toISOString()}\n\n${content}`;
+                                    await fsPromises.writeFile(`${finalPath}/${targetFile}`, updatedContent);
+                                }
+                                break;
+                            } catch {
+                                // No existe este ejemplo
+                            }
+                        }
+                        
+                        // Si no se encontró ningún ejemplo y es un archivo .env, crear uno vacío
+                        if (!configFileExists && check.files[0].includes('.env')) {
+                            const targetFile = check.files[0];
+                            console.log(`${check.message}. Creando ${targetFile} vacío...`);
+                            await fsPromises.writeFile(
+                                `${finalPath}/${targetFile}`, 
+                                `# ⚠️ Variables de entorno necesarias\n# Configurar antes de hacer deploy\n# Creado automáticamente el ${new Date().toISOString()}\n\n`
+                            );
+                        }
+                    }
+                }
+            } catch (e) {
+                console.error('Error procesando package.json:', e);
+            }
+        } else if (projectType === 'python' && files.includes('requirements.txt')) {
+            // Crear entorno virtual e instalar dependencias
+            await execPromise(`cd ${finalPath} && python3 -m venv venv`);
+            await execPromise(`cd ${finalPath} && source venv/bin/activate && pip install -r requirements.txt`);
+        } else if (projectType === 'php' && files.includes('composer.json')) {
+            // Instalar dependencias de PHP
+            await execPromise(`cd ${finalPath} && composer install`);
+        }
+        
+        // Detectar dependencias de base de datos
+        let dbRequirements = [];
+        
+        if (projectType === 'node' && files.includes('package.json')) {
+            const packageJson = JSON.parse(await fsPromises.readFile(`${finalPath}/package.json`, 'utf8'));
+            const deps = { ...packageJson.dependencies, ...packageJson.devDependencies };
+            
+            if (deps.mysql || deps.mysql2) dbRequirements.push('MySQL');
+            if (deps.pg || deps.postgres) dbRequirements.push('PostgreSQL');
+            if (deps.mongodb || deps.mongoose) dbRequirements.push('MongoDB');
+            if (deps.redis || deps.ioredis) dbRequirements.push('Redis');
+            if (deps.sqlite || deps.sqlite3) dbRequirements.push('SQLite');
+        } else if (projectType === 'python' && files.includes('requirements.txt')) {
+            const requirements = await fsPromises.readFile(`${finalPath}/requirements.txt`, 'utf8');
+            
+            if (requirements.includes('mysql') || requirements.includes('pymysql')) dbRequirements.push('MySQL');
+            if (requirements.includes('psycopg') || requirements.includes('postgres')) dbRequirements.push('PostgreSQL');
+            if (requirements.includes('pymongo')) dbRequirements.push('MongoDB');
+            if (requirements.includes('redis')) dbRequirements.push('Redis');
+            if (requirements.includes('sqlite')) dbRequirements.push('SQLite');
+        }
+        
+        // Crear CLAUDE.md si no existe
+        const claudePath = `${finalPath}/CLAUDE.md`;
+        try {
+            await fsPromises.access(claudePath);
+        } catch {
+            // No existe, crear uno básico
+            const claudeContent = `# ${repoName}
+
+Proyecto clonado desde GitHub: ${repo}
+
+## Descripción
+${projectType === 'static' ? 'Sitio web estático' : `Aplicación ${technology}`}
+
+## Tecnología
+- ${technology}
+${dbRequirements.length > 0 ? `\n## Bases de datos requeridas\n${dbRequirements.map(db => `- ${db}`).join('\n')}` : ''}
+
+## Ubicación
+${finalPath}
+
+## Clonado
+${new Date().toISOString()}
+
+## Configuración pendiente
+${dbRequirements.length > 0 ? '- ⚠️ Configurar conexión a base de datos\n' : ''}${files.includes('.env.example') || files.includes('.env.sample') ? '- ⚠️ Revisar variables de entorno en .env\n' : ''}${projectType === 'docker' ? '- ⚠️ Revisar docker-compose.yml antes de iniciar\n' : ''}
+
+## Comandos útiles
+\`\`\`bash
+# Iniciar proyecto
+${projectType === 'node' ? 'npm start' : projectType === 'python' ? 'python app.py' : projectType === 'docker' ? 'docker-compose up' : 'Ver documentación'}
+
+# Deploy
+/Users/mini-server/project-management/scripts/project-deploy.sh ${finalPath} <subdominio> <puerto>
+\`\`\`
+`;
+            await fsPromises.writeFile(claudePath, claudeContent);
+        }
+        
+        res.json({
+            success: true,
+            repo: repo,
+            path: finalPath,
+            projectType,
+            technology,
+            hasPackageJson: files.includes('package.json'),
+            hasDockerfile: files.includes('Dockerfile'),
+            hasRequirements: files.includes('requirements.txt'),
+            dependenciesInstalled: true,
+            buildExecuted: projectType === 'node' && files.includes('package.json'),
+            readyToDeploy: true,
+            databasesRequired: dbRequirements,
+            configurationNeeded: dbRequirements.length > 0 || files.includes('.env.example'),
+            warnings: [
+                ...(dbRequirements.length > 0 ? [`Bases de datos requeridas: ${dbRequirements.join(', ')}`] : []),
+                ...(files.includes('.env.example') || files.includes('.env.sample') ? ['Configurar variables de entorno antes de deploy'] : []),
+                ...(projectType === 'docker' ? ['Revisar docker-compose.yml antes de iniciar'] : [])
+            ]
+        });
+        
+    } catch (error) {
+        console.error('Error clonando repositorio:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // Métricas en tiempo real
 setInterval(async () => {
     try {
