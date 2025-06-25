@@ -5,17 +5,68 @@ This file provides guidance to Claude Code when working with this repository.
 ## Project: dashboard-mvp
 
 ### Project Overview
-Panel de control central para gestión del servidor Mac Mini con monitoreo en tiempo real.
+Panel de control central para gestión del servidor Mac Mini con monitoreo en tiempo real, gestión universal de proyectos y sistema de historial completo.
 
 ### Project Structure
 - **Type**: Node.js
 - **Location**: /Users/mini-server/server-dashboard-mvp
-- **Technology**: Node.js/JavaScript
+- **Technology**: Node.js/JavaScript (Express + Socket.io)
+- **Frontend**: Bootstrap 5 + Vanilla JavaScript
+- **Real-time**: WebSockets para monitoreo en vivo
 
-### Key Commands
+### Key Features
+- 📊 Monitoreo en tiempo real del sistema (CPU, RAM, Disco, Uptime)
+- 🚀 Gestión universal de proyectos (Start, Deploy, Close)
+- 📜 Sistema de historial completo con estadísticas
+- 🌐 Gestión de dominios con Cloudflare
+- 🗄️ Explorador de bases de datos (PostgreSQL, MySQL)
+- 📋 Logs en tiempo real (Sistema, Nginx, PM2, Docker)
+- 💾 Sistema de backups automatizado
+- 🌓 Modo oscuro/claro
+
+### Universal Scripts Integration
 ```bash
-# Close project with versioning and documentation
-# Executed from Dashboard MVP
+# Close project with versioning
+/Users/mini-server/project-management/scripts/project-close.sh <project-path>
+
+# Start project intelligently
+/Users/mini-server/project-management/scripts/project-start.sh <project-path> [dev|prod]
+
+# Deploy project with domain
+/Users/mini-server/project-management/scripts/project-deploy.sh <project-path> [subdomain] [port]
+```
+
+### API Endpoints
+- `GET /api/system/status` - Estado del sistema
+- `GET /api/apps` - Lista de aplicaciones
+- `GET /api/projects` - Lista de proyectos
+- `POST /api/projects/:id/close` - Cerrar proyecto
+- `POST /api/projects/:id/start` - Iniciar proyecto
+- `POST /api/projects/:id/deploy` - Deploy proyecto
+- `GET /api/projects/history` - Historial completo
+- `GET /api/domains` - Lista de dominios
+- `GET /api/databases` - Lista de bases de datos
+
+### Recent Updates (2025-06-25)
+- ✅ Sistema de historial completamente funcional
+- ✅ Integración con GitHub token para push automático
+- ✅ Scripts universales mejorados con logging
+- ✅ Deploy script ahora muestra URLs de Cloudflare y Tailscale
+- ✅ Confirmación interactiva de subdominio en deploy
+- ✅ Documentación completa de flujos en `/project-management/docs/`
+
+### Development Commands
+```bash
+# Start development server
+npm run dev  # or node server.js
+
+# View logs
+pm2 logs dashboard-mvp
+
+# Access dashboard
+# Local: http://localhost:8888
+# Cloudflare: https://dashboard.lisbontiles.com (cuando esté configurado)
+# Tailscale: https://mini-server:8888
 ```
 
 
