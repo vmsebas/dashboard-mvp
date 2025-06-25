@@ -966,6 +966,114 @@ ${getProjectDescription(projectId, projectType)}
     }
 });
 
+// API: Deploy proyecto
+app.post('/api/projects/:projectId/deploy', async (req, res) => {
+    const { projectId } = req.params;
+    const { subdomain, port } = req.body;
+    
+    try {
+        // Mapeo de proyectos
+        const projectPaths = {
+            'iva-compensator': '/Users/mini-server/production/node-apps/iva-compensator',
+            'migestpro': '/Users/mini-server/MiGestPro',
+            'dashboard-mvp': '/Users/mini-server/server-dashboard-mvp'
+        };
+
+        const projectPath = projectPaths[projectId];
+        if (!projectPath) {
+            return res.status(404).json({ error: 'Proyecto no encontrado' });
+        }
+
+        // Ejecutar script de deploy
+        const deployScript = '/Users/mini-server/project-management/scripts/project-deploy.sh';
+        const deployCommand = `"${deployScript}" "${projectPath}"${subdomain ? ` "${subdomain}"` : ''}${port ? ` "${port}"` : ''}`;
+        
+        console.log('Ejecutando deploy:', deployCommand);
+        
+        const { stdout, stderr } = await execPromise(deployCommand);
+        
+        // Parsear resultado del script
+        const result = {
+            project: projectId,
+            status: 'success',
+            output: stdout,
+            error: stderr,
+            timestamp: new Date().toISOString(),
+            deployUrl: subdomain ? `https://${subdomain}.lisbontiles.com` : null,
+            localUrl: port ? `http://localhost:${port}` : null
+        };
+
+        res.json(result);
+    } catch (error) {
+        console.error('Error deployando proyecto:', error);
+        res.status(500).json({ 
+            error: error.message,
+            project: projectId,
+            status: 'error',
+            output: error.stdout || '',
+            errorDetails: error.stderr || ''
+        });
+    }
+});
+
+// API: Iniciar proyecto (development)
+app.post('/api/projects/:projectId/start', async (req, res) => {
+    const { projectId } = req.params;
+    const { mode = 'dev' } = req.body;
+    
+    try {
+        // Mapeo de proyectos
+        const projectPaths = {
+            'iva-compensator': '/Users/mini-server/production/node-apps/iva-compensator',
+            'migestpro': '/Users/mini-server/MiGestPro',
+            'dashboard-mvp': '/Users/mini-server/server-dashboard-mvp'
+        };
+
+        const projectPath = projectPaths[projectId];
+        if (!projectPath) {
+            return res.status(404).json({ error: 'Proyecto no encontrado' });
+        }
+
+        // Ejecutar script de start (sin inicio automático del servidor)
+        const startScript = '/Users/mini-server/project-management/scripts/project-start.sh';
+        const startCommand = `"${startScript}" "${projectPath}" "${mode}"`;
+        
+        console.log('Preparando proyecto:', startCommand);
+        
+        const { stdout, stderr } = await execPromise(startCommand);
+        
+        // Extraer información relevante del output
+        const portMatch = stdout.match(/Puerto:\s*(\d+)/);
+        const typeMatch = stdout.match(/Tipo:\s*([^\n]+)/);
+        const dependenciesMatch = stdout.match(/DEPENDENCIAS ACTIVAS:\s*([\s\S]*?)(?=\n\n|\n🚀|$)/);
+        
+        const result = {
+            project: projectId,
+            status: 'success',
+            mode: mode,
+            output: stdout,
+            error: stderr,
+            timestamp: new Date().toISOString(),
+            projectType: typeMatch ? typeMatch[1].trim() : 'Unknown',
+            port: portMatch ? portMatch[1] : null,
+            localUrl: portMatch ? `http://localhost:${portMatch[1]}` : null,
+            dependencies: dependenciesMatch ? dependenciesMatch[1].split('\n').filter(line => line.includes('✅')).map(line => line.replace(/.*✅\s*/, '').trim()) : [],
+            ready: true
+        };
+
+        res.json(result);
+    } catch (error) {
+        console.error('Error iniciando proyecto:', error);
+        res.status(500).json({ 
+            error: error.message,
+            project: projectId,
+            status: 'error',
+            output: error.stdout || '',
+            errorDetails: error.stderr || ''
+        });
+    }
+});
+
 // Funciones auxiliares para el cierre universal
 function generateUniversalCommitMessage(projectId, version, projectType, result) {
     const projectDescriptions = {

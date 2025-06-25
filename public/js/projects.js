@@ -92,15 +92,19 @@ function renderProjects() {
                             <i class="bi bi-info-circle"></i> Ver Información
                         </button>
                         <div class="btn-group" role="group">
-                            <button class="btn btn-success btn-sm" onclick="closeProject('${project.id}')" 
-                                    title="${project.hasGit ? 'Cerrar proyecto con Git configurado' : 'Cerrar proyecto (inicializará Git automáticamente)'}">
-                                <i class="bi bi-check-circle"></i> Cerrar Proyecto
+                            <button class="btn btn-outline-success btn-sm" onclick="startProject('${project.id}')"
+                                    title="Iniciar proyecto en modo desarrollo">
+                                <i class="bi bi-play-circle"></i> Iniciar
                             </button>
                             <button class="btn btn-outline-primary btn-sm" onclick="deployProject('${project.id}')"
-                                    title="Deploy automático (en desarrollo)">
+                                    title="Deploy automático con Nginx y DNS">
                                 <i class="bi bi-rocket"></i> Deploy
                             </button>
                         </div>
+                        <button class="btn btn-success btn-sm" onclick="closeProject('${project.id}')" 
+                                title="${project.hasGit ? 'Cerrar proyecto con Git configurado' : 'Cerrar proyecto (inicializará Git automáticamente)'}">
+                            <i class="bi bi-check-circle"></i> Cerrar Proyecto
+                        </button>
                     </div>
                 </div>
                 <div class="card-footer">
@@ -423,8 +427,335 @@ function showProjectCloseResult(result) {
 }
 
 async function deployProject(projectId) {
-    showNotification('Función de deploy en desarrollo...', 'info');
-    // TODO: Implementar deploy desde dashboard
+    // Mostrar modal de configuración de deploy
+    showDeployConfigModal(projectId);
+}
+
+async function startProject(projectId, mode = 'dev') {
+    const confirmed = confirm(`¿Quieres iniciar el proyecto "${projectId}" en modo ${mode}?\\n\\nEsto preparará el entorno de desarrollo y las dependencias.`);
+    
+    if (!confirmed) return;
+    
+    try {
+        showNotification('Iniciando proyecto...', 'info');
+        
+        const response = await fetch(`/api/projects/${projectId}/start`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ mode })
+        });
+        
+        const result = await response.json();
+        
+        if (!response.ok) throw new Error(result.error);
+        
+        // Mostrar resultado del inicio
+        showProjectStartResult(result);
+        
+        // Recargar lista de proyectos
+        setTimeout(loadProjects, 2000);
+        
+    } catch (error) {
+        console.error('Error iniciando proyecto:', error);
+        showNotification(`Error iniciando proyecto: ${error.message}`, 'error');
+    }
+}
+
+function showDeployConfigModal(projectId) {
+    const modalHtml = `
+        <div class="modal fade" id="deployConfigModal" tabindex="-1">
+            <div class="modal-dialog">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">
+                            <i class="bi bi-rocket"></i> Configurar Deploy - ${projectId}
+                        </h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <form id="deployConfigForm">
+                            <div class="mb-3">
+                                <label for="subdomain" class="form-label">Subdominio</label>
+                                <div class="input-group">
+                                    <input type="text" class="form-control" id="subdomain" 
+                                           placeholder="${projectId}" value="${projectId}">
+                                    <span class="input-group-text">.lisbontiles.com</span>
+                                </div>
+                                <div class="form-text">URL final: https://[subdominio].lisbontiles.com</div>
+                            </div>
+                            <div class="mb-3">
+                                <label for="port" class="form-label">Puerto (opcional)</label>
+                                <input type="number" class="form-control" id="port" 
+                                       placeholder="3000" min="1000" max="65535">
+                                <div class="form-text">Deja vacío para usar puerto automático</div>
+                            </div>
+                            <div class="alert alert-info">
+                                <i class="bi bi-info-circle"></i>
+                                <strong>El deploy incluye:</strong>
+                                <ul class="mb-0 mt-2">
+                                    <li>Configuración automática de Nginx</li>
+                                    <li>DNS en Cloudflare</li>
+                                    <li>SSL automático</li>
+                                    <li>Monitoreo con PM2/Docker</li>
+                                </ul>
+                            </div>
+                        </form>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                        <button type="button" class="btn btn-success" onclick="executeDeploy('${projectId}')">
+                            <i class="bi bi-rocket"></i> Deployar
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    // Remover modal existente si lo hay
+    const existingModal = document.getElementById('deployConfigModal');
+    if (existingModal) existingModal.remove();
+    
+    // Agregar nuevo modal
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+    
+    // Mostrar modal
+    const modal = new bootstrap.Modal(document.getElementById('deployConfigModal'));
+    modal.show();
+}
+
+async function executeDeploy(projectId) {
+    const subdomain = document.getElementById('subdomain').value.trim();
+    const port = document.getElementById('port').value.trim();
+    
+    if (!subdomain) {
+        showNotification('El subdominio es requerido', 'error');
+        return;
+    }
+    
+    // Cerrar modal de configuración
+    const modal = bootstrap.Modal.getInstance(document.getElementById('deployConfigModal'));
+    modal.hide();
+    
+    try {
+        showNotification('Deployando proyecto...', 'info');
+        
+        const response = await fetch(`/api/projects/${projectId}/deploy`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ subdomain, port })
+        });
+        
+        const result = await response.json();
+        
+        if (!response.ok) throw new Error(result.error);
+        
+        // Mostrar resultado del deploy
+        showProjectDeployResult(result);
+        
+        // Recargar lista de proyectos
+        setTimeout(loadProjects, 3000);
+        
+    } catch (error) {
+        console.error('Error deployando proyecto:', error);
+        showNotification(`Error en deploy: ${error.message}`, 'error');
+    }
+}
+
+function showProjectDeployResult(result) {
+    const modalHtml = `
+        <div class="modal fade" id="projectDeployResultModal" tabindex="-1">
+            <div class="modal-dialog modal-xl">
+                <div class="modal-content">
+                    <div class="modal-header bg-success text-white">
+                        <h5 class="modal-title">
+                            <i class="bi bi-rocket"></i> 🚀 Deploy Completado Exitosamente
+                        </h5>
+                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <!-- Resumen Principal -->
+                        <div class="row mb-4">
+                            <div class="col-md-6">
+                                <div class="card bg-light">
+                                    <div class="card-body">
+                                        <h6><i class="bi bi-info-circle"></i> Información del Deploy</h6>
+                                        <p class="mb-1"><strong>Proyecto:</strong> ${result.project}</p>
+                                        <p class="mb-1"><strong>Fecha:</strong> ${new Date(result.timestamp).toLocaleDateString()} ${new Date(result.timestamp).toLocaleTimeString()}</p>
+                                        <p class="mb-0"><strong>Estado:</strong> <span class="badge bg-success">Exitoso</span></p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="card bg-light">
+                                    <div class="card-body">
+                                        <h6><i class="bi bi-globe"></i> URLs de Acceso</h6>
+                                        ${result.deployUrl ? `<p class="mb-1"><strong>Producción:</strong> <a href="${result.deployUrl}" target="_blank">${result.deployUrl}</a></p>` : ''}
+                                        ${result.localUrl ? `<p class="mb-1"><strong>Local:</strong> <a href="${result.localUrl}" target="_blank">${result.localUrl}</a></p>` : ''}
+                                        <p class="mb-0"><strong>SSL:</strong> <span class="badge bg-success">Automático</span></p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Output del Script -->
+                        <div class="mb-4">
+                            <h6><i class="bi bi-terminal"></i> Log del Deploy:</h6>
+                            <div class="card">
+                                <div class="card-body">
+                                    <pre class="mb-0" style="white-space: pre-wrap; font-size: 0.85rem; max-height: 400px; overflow-y: auto;">${result.output}</pre>
+                                </div>
+                            </div>
+                        </div>
+
+                        ${result.error ? `
+                            <div class="alert alert-warning">
+                                <i class="bi bi-exclamation-triangle"></i>
+                                <strong>Advertencias:</strong>
+                                <pre class="mb-0 mt-2">${result.error}</pre>
+                            </div>
+                        ` : ''}
+
+                        <div class="alert alert-success">
+                            <i class="bi bi-check-circle"></i>
+                            <strong>✅ Deploy completado exitosamente</strong><br>
+                            ${result.deployUrl ? `Tu aplicación está disponible en: <a href="${result.deployUrl}" target="_blank">${result.deployUrl}</a>` : 'Aplicación deployada localmente'}
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        ${result.deployUrl ? `
+                            <a href="${result.deployUrl}" target="_blank" class="btn btn-success">
+                                <i class="bi bi-globe"></i> Abrir Aplicación
+                            </a>
+                        ` : ''}
+                        <button type="button" class="btn btn-primary" data-bs-dismiss="modal">
+                            <i class="bi bi-check-lg"></i> Entendido
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    // Remover modal existente si lo hay
+    const existingModal = document.getElementById('projectDeployResultModal');
+    if (existingModal) existingModal.remove();
+    
+    // Agregar nuevo modal
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+    
+    // Mostrar modal
+    const modal = new bootstrap.Modal(document.getElementById('projectDeployResultModal'));
+    modal.show();
+    
+    showNotification(`Proyecto ${result.project} deployado exitosamente`, 'success');
+}
+
+function showProjectStartResult(result) {
+    const modalHtml = `
+        <div class="modal fade" id="projectStartResultModal" tabindex="-1">
+            <div class="modal-dialog modal-xl">
+                <div class="modal-content">
+                    <div class="modal-header bg-primary text-white">
+                        <h5 class="modal-title">
+                            <i class="bi bi-play-circle"></i> 🚀 Proyecto Iniciado Exitosamente
+                        </h5>
+                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <!-- Resumen Principal -->
+                        <div class="row mb-4">
+                            <div class="col-md-6">
+                                <div class="card bg-light">
+                                    <div class="card-body">
+                                        <h6><i class="bi bi-info-circle"></i> Información del Proyecto</h6>
+                                        <p class="mb-1"><strong>Proyecto:</strong> ${result.project}</p>
+                                        <p class="mb-1"><strong>Tipo:</strong> ${result.projectType}</p>
+                                        <p class="mb-1"><strong>Modo:</strong> ${result.mode}</p>
+                                        <p class="mb-0"><strong>Estado:</strong> <span class="badge bg-success">Listo</span></p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="card bg-light">
+                                    <div class="card-body">
+                                        <h6><i class="bi bi-gear"></i> Configuración</h6>
+                                        ${result.port ? `<p class="mb-1"><strong>Puerto:</strong> ${result.port}</p>` : ''}
+                                        ${result.localUrl ? `<p class="mb-1"><strong>URL Local:</strong> <a href="${result.localUrl}" target="_blank">${result.localUrl}</a></p>` : ''}
+                                        <p class="mb-0"><strong>Dependencias:</strong> ${result.dependencies.length} activas</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        ${result.dependencies.length > 0 ? `
+                            <div class="mb-4">
+                                <h6><i class="bi bi-layers"></i> Dependencias Iniciadas:</h6>
+                                <div class="row">
+                                    ${result.dependencies.map(dep => `
+                                        <div class="col-md-4 mb-2">
+                                            <span class="badge bg-success">✅ ${dep}</span>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            </div>
+                        ` : ''}
+
+                        <!-- Output del Script -->
+                        <div class="mb-4">
+                            <h6><i class="bi bi-terminal"></i> Log de Inicio:</h6>
+                            <div class="card">
+                                <div class="card-body">
+                                    <pre class="mb-0" style="white-space: pre-wrap; font-size: 0.85rem; max-height: 400px; overflow-y: auto;">${result.output}</pre>
+                                </div>
+                            </div>
+                        </div>
+
+                        ${result.error ? `
+                            <div class="alert alert-warning">
+                                <i class="bi bi-exclamation-triangle"></i>
+                                <strong>Advertencias:</strong>
+                                <pre class="mb-0 mt-2">${result.error}</pre>
+                            </div>
+                        ` : ''}
+
+                        <div class="alert alert-info">
+                            <i class="bi bi-lightbulb"></i>
+                            <strong>Proyecto listo para desarrollo</strong><br>
+                            ${result.localUrl ? `Puedes acceder a tu aplicación en: <a href="${result.localUrl}" target="_blank">${result.localUrl}</a>` : 'El entorno está preparado para desarrollo'}
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        ${result.localUrl ? `
+                            <a href="${result.localUrl}" target="_blank" class="btn btn-primary">
+                                <i class="bi bi-eye"></i> Ver Aplicación
+                            </a>
+                        ` : ''}
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                            <i class="bi bi-check-lg"></i> Entendido
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    // Remover modal existente si lo hay
+    const existingModal = document.getElementById('projectStartResultModal');
+    if (existingModal) existingModal.remove();
+    
+    // Agregar nuevo modal
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+    
+    // Mostrar modal
+    const modal = new bootstrap.Modal(document.getElementById('projectStartResultModal'));
+    modal.show();
+    
+    showNotification(`Proyecto ${result.project} iniciado exitosamente en modo ${result.mode}`, 'success');
 }
 
 // Función auxiliar para copiar al portapapeles
