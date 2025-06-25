@@ -931,6 +931,19 @@ app.post('/api/projects/:projectId/deploy', async (req, res) => {
         
         const { stdout, stderr } = await execPromise(deployCommand);
         
+        // Detectar si se ejecutó auto-cierre
+        const autoClosed = stdout.includes('Ejecutando cierre automático') || 
+                          stdout.includes('Detectados cambios sin commitear');
+        
+        // Extraer nueva versión si se cerró
+        let newVersion = null;
+        if (autoClosed) {
+            const versionMatch = stdout.match(/Nueva versión: (v[\d.]+)/);
+            if (versionMatch) {
+                newVersion = versionMatch[1];
+            }
+        }
+        
         // Parsear resultado del script
         const result = {
             project: projectId,
@@ -939,7 +952,9 @@ app.post('/api/projects/:projectId/deploy', async (req, res) => {
             error: stderr,
             timestamp: new Date().toISOString(),
             deployUrl: subdomain ? `https://${subdomain}.lisbontiles.com` : null,
-            localUrl: port ? `http://localhost:${port}` : null
+            localUrl: port ? `http://localhost:${port}` : null,
+            autoClosed: autoClosed,
+            newVersion: newVersion
         };
 
         res.json(result);

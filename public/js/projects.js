@@ -598,6 +598,10 @@ async function startProject(projectId) {
 }
 
 function showDeployConfigModal(projectId) {
+    // Buscar el proyecto para verificar si tiene cambios
+    const project = projects.find(p => p.id === projectId);
+    const hasUncommittedChanges = project?.gitStatus?.needsCommit || false;
+    
     const modalHtml = `
         <div class="modal fade" id="deployConfigModal" tabindex="-1">
             <div class="modal-dialog">
@@ -609,6 +613,14 @@ function showDeployConfigModal(projectId) {
                         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                     </div>
                     <div class="modal-body">
+                        ${hasUncommittedChanges ? `
+                            <div class="alert alert-warning">
+                                <i class="bi bi-exclamation-triangle"></i>
+                                <strong>Cambios sin commitear detectados</strong><br>
+                                <small>El script de deploy cerrará automáticamente el proyecto y creará un commit con los cambios pendientes antes de continuar.</small>
+                            </div>
+                        ` : ''}
+                        
                         <form id="deployConfigForm">
                             <div class="mb-3">
                                 <label for="subdomain" class="form-label">Subdominio</label>
@@ -621,8 +633,13 @@ function showDeployConfigModal(projectId) {
                             </div>
                             <div class="mb-3">
                                 <label for="port" class="form-label">Puerto <span class="text-danger">*</span></label>
-                                <input type="number" class="form-control" id="port" 
-                                       placeholder="8500" min="1000" max="65535" required>
+                                <div class="input-group">
+                                    <input type="number" class="form-control" id="port" 
+                                           placeholder="8500" min="1000" max="65535" required>
+                                    <button class="btn btn-outline-secondary" type="button" id="suggestPortBtn">
+                                        <i class="bi bi-lightbulb"></i> Sugerir
+                                    </button>
+                                </div>
                                 <div class="form-text">
                                     <strong>Puertos recomendados:</strong> 4200, 4500, 4800, 5200, 5500, 5800, 6200, 6500, 6800, 7200, 7500, 7800, 8200, 8500, 8800<br>
                                     <strong class="text-warning">Evitar:</strong> 3000, 5000, 8000, 8080 (comúnmente usados)
@@ -639,6 +656,7 @@ function showDeployConfigModal(projectId) {
                                     <li>DNS en Cloudflare</li>
                                     <li>SSL automático</li>
                                     <li>Monitoreo con PM2/Docker</li>
+                                    ${hasUncommittedChanges ? '<li class="text-warning"><strong>Auto-cierre del proyecto con versionado</strong></li>' : ''}
                                 </ul>
                             </div>
                         </form>
@@ -665,14 +683,18 @@ function showDeployConfigModal(projectId) {
     const modal = new bootstrap.Modal(document.getElementById('deployConfigModal'));
     modal.show();
     
-    // Cargar puertos en uso
+    // Cargar puertos en uso y configurar eventos
     loadPortsInUse();
+    setupPortSuggestions();
 }
 
 async function loadPortsInUse() {
     try {
         const response = await fetch('/api/system/ports');
         const data = await response.json();
+        
+        // Guardar puertos en uso para sugerencias
+        window.portsInUse = data.ports || [];
         
         const portsContainer = document.getElementById('portsInUse');
         if (data.ports && data.ports.length > 0) {
@@ -689,7 +711,52 @@ async function loadPortsInUse() {
         }
     } catch (error) {
         console.error('Error cargando puertos:', error);
+        window.portsInUse = [];
     }
+}
+
+// Nueva función para configurar sugerencias de puerto
+function setupPortSuggestions() {
+    const suggestBtn = document.getElementById('suggestPortBtn');
+    const portInput = document.getElementById('port');
+    
+    if (suggestBtn) {
+        suggestBtn.addEventListener('click', function() {
+            const suggestedPort = getSuggestedPort();
+            if (suggestedPort) {
+                portInput.value = suggestedPort;
+                showNotification(`Puerto ${suggestedPort} sugerido (disponible)`, 'success');
+            } else {
+                showNotification('No se encontraron puertos disponibles en el rango recomendado', 'warning');
+            }
+        });
+    }
+}
+
+// Nueva función para obtener un puerto sugerido
+function getSuggestedPort() {
+    // Lista de puertos recomendados
+    const recommendedPorts = [4200, 4500, 4800, 5200, 5500, 5800, 6200, 6500, 6800, 7200, 7500, 7800, 8200, 8500, 8800, 9200, 9500, 9800];
+    const portsInUse = window.portsInUse || [];
+    
+    // Buscar el primer puerto disponible
+    for (const port of recommendedPorts) {
+        if (!portsInUse.includes(port)) {
+            return port;
+        }
+    }
+    
+    // Si todos están ocupados, buscar uno al azar en rangos seguros
+    for (let i = 0; i < 50; i++) {
+        const randomPort = 4000 + Math.floor(Math.random() * 5000); // Entre 4000 y 9000
+        if (!portsInUse.includes(randomPort) && 
+            randomPort !== 3000 && randomPort !== 5000 && 
+            randomPort !== 8000 && randomPort !== 8080) {
+            return randomPort;
+        }
+    }
+    
+    return null;
 }
 
 async function executeDeploy(projectId) {
@@ -707,11 +774,25 @@ async function executeDeploy(projectId) {
         return;
     }
     
+    // Verificar si el puerto está en el rango válido
+    const portNum = parseInt(port);
+    if (portNum < 1000 || portNum > 65535) {
+        showNotification('El puerto debe estar entre 1000 y 65535', 'error');
+        return;
+    }
+    
+    // Buscar el proyecto para verificar si tiene cambios
+    const project = projects.find(p => p.id === projectId);
+    const hasUncommittedChanges = project?.gitStatus?.needsCommit || false;
+    
     // Cerrar modal de configuración
     const modal = bootstrap.Modal.getInstance(document.getElementById('deployConfigModal'));
     modal.hide();
     
     try {
+        if (hasUncommittedChanges) {
+            showNotification('Cerrando proyecto automáticamente antes del deploy...', 'info');
+        }
         showNotification('Deployando proyecto...', 'info');
         
         const response = await fetch(`/api/projects/${projectId}/deploy`, {
@@ -759,6 +840,7 @@ function showProjectDeployResult(result) {
                                         <p class="mb-1"><strong>Proyecto:</strong> ${result.project}</p>
                                         <p class="mb-1"><strong>Fecha:</strong> ${new Date(result.timestamp).toLocaleDateString()} ${new Date(result.timestamp).toLocaleTimeString()}</p>
                                         <p class="mb-0"><strong>Estado:</strong> <span class="badge bg-success">Exitoso</span></p>
+                                        ${result.autoClosed ? `<p class="mb-0 mt-2"><span class="badge bg-info">✅ Proyecto cerrado automáticamente</span></p>` : ''}
                                     </div>
                                 </div>
                             </div>
@@ -774,6 +856,14 @@ function showProjectDeployResult(result) {
                             </div>
                         </div>
 
+                        ${result.autoClosed ? `
+                            <div class="alert alert-info mb-3">
+                                <i class="bi bi-check-circle"></i>
+                                <strong>Auto-cierre ejecutado</strong><br>
+                                <small>Se detectó cambios sin commitear y el proyecto fue cerrado automáticamente con la nueva versión <strong>${result.newVersion || 'N/A'}</strong> antes del deploy.</small>
+                            </div>
+                        ` : ''}
+                        
                         <!-- Output del Script -->
                         <div class="mb-4">
                             <h6><i class="bi bi-terminal"></i> Log del Deploy:</h6>
