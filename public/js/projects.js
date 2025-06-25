@@ -532,7 +532,8 @@ function showDeployConfigModal(projectId) {
 }
 
 async function executeDeploy(projectId) {
-    const subdomain = document.getElementById('subdomain').value.trim();
+    const subdomainInput = document.getElementById('subdomain');
+    const subdomain = subdomainInput.value.trim() || projectId;
     const port = document.getElementById('port').value.trim();
     
     if (!subdomain) {
