@@ -1,0 +1,718 @@
+<!DOCTYPE html>
+<html lang="es" data-theme="light">
+<head>
+    <title>Mac Mini Server Dashboard</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism-tomorrow.css">
+    <link rel="stylesheet" href="/css/dark-mode-fixes.css">
+    <style>
+        :root {
+            --bg-primary: #ffffff;
+            --bg-secondary: #f8f9fa;
+            --bg-card: #ffffff;
+            --text-primary: #212529;
+            --text-secondary: #6c757d;
+            --border-color: #dee2e6;
+            --shadow: 0 0.125rem 0.25rem rgba(0,0,0,0.075);
+            --shadow-hover: 0 0.5rem 1rem rgba(0,0,0,0.15);
+        }
+
+        [data-theme="dark"] {
+            --bg-primary: #1a1a1a;
+            --bg-secondary: #2d2d2d;
+            --bg-card: #242424;
+            --text-primary: #e9ecef;
+            --text-secondary: #adb5bd;
+            --border-color: #495057;
+            --shadow: 0 0.125rem 0.25rem rgba(0,0,0,0.5);
+            --shadow-hover: 0 0.5rem 1rem rgba(0,0,0,0.7);
+        }
+
+        body {
+            background-color: var(--bg-secondary);
+            color: var(--text-primary);
+            transition: all 0.3s ease;
+            font-size: 16px;
+        }
+
+        .navbar {
+            background-color: var(--bg-primary) !important;
+            border-bottom: 1px solid var(--border-color);
+            box-shadow: var(--shadow);
+        }
+
+        .card {
+            background-color: var(--bg-card);
+            border: 1px solid var(--border-color);
+            box-shadow: var(--shadow);
+            transition: all 0.3s ease;
+            color: var(--text-primary);
+        }
+
+        .card:hover {
+            transform: translateY(-5px);
+            box-shadow: var(--shadow-hover);
+        }
+
+        .status-badge { 
+            font-size: 2rem; 
+            font-weight: bold; 
+        }
+
+        .metric-card {
+            position: relative;
+            overflow: hidden;
+        }
+
+        .metric-card::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            right: -50%;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 70%);
+            transform: rotate(45deg);
+        }
+
+        .table {
+            color: var(--text-primary);
+            font-size: 15px;
+        }
+        
+        .table th {
+            color: var(--text-primary);
+            background-color: var(--bg-secondary);
+            border-color: var(--border-color);
+        }
+        
+        .table td {
+            color: var(--text-primary);
+            border-color: var(--border-color);
+        }
+
+        .table-hover tbody tr:hover {
+            background-color: var(--bg-secondary);
+        }
+
+        .nav-tabs .nav-link {
+            color: var(--text-secondary);
+            border-color: transparent;
+        }
+
+        .nav-tabs .nav-link:hover {
+            border-color: var(--border-color);
+            color: var(--text-primary);
+        }
+
+        .nav-tabs .nav-link.active {
+            background-color: var(--bg-card);
+            color: var(--text-primary);
+            border-color: var(--border-color) var(--border-color) var(--bg-card);
+        }
+
+        .btn-theme {
+            background-color: transparent;
+            border: 1px solid var(--border-color);
+            color: var(--text-primary);
+        }
+
+        .btn-theme:hover {
+            background-color: var(--bg-secondary);
+        }
+
+        .terminal {
+            background-color: #1e1e1e;
+            color: #d4d4d4;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 14px;
+            padding: 1rem;
+            border-radius: 0.5rem;
+            height: 500px;
+            overflow-y: auto;
+        }
+        
+        .card-header {
+            background-color: var(--bg-card);
+            color: var(--text-primary);
+            border-bottom-color: var(--border-color);
+        }
+        
+        .card-title {
+            color: var(--text-primary);
+        }
+
+        .db-tree {
+            max-height: 600px;
+            overflow-y: auto;
+        }
+
+        .db-item {
+            cursor: pointer;
+            padding: 0.5rem;
+            border-radius: 0.25rem;
+            transition: all 0.2s;
+            color: var(--text-primary);
+            font-size: 15px;
+        }
+
+        .db-item:hover {
+            background-color: var(--bg-secondary);
+        }
+
+        .db-item.active {
+            background-color: var(--bg-secondary);
+            border-left: 3px solid #0d6efd;
+        }
+
+        [data-theme="dark"] .text-dark {
+            color: var(--text-primary) !important;
+        }
+
+        [data-theme="dark"] .bg-light {
+            background-color: var(--bg-secondary) !important;
+            color: var(--text-primary) !important;
+        }
+        
+        [data-theme="dark"] .text-muted {
+            color: var(--text-secondary) !important;
+        }
+        
+        [data-theme="dark"] .badge {
+            color: #fff;
+        }
+        
+        [data-theme="dark"] .list-group-item {
+            background-color: var(--bg-card);
+            color: var(--text-primary);
+            border-color: var(--border-color);
+        }
+        
+        [data-theme="dark"] .list-group-item:hover {
+            background-color: var(--bg-secondary);
+        }
+        
+        [data-theme="dark"] .form-control,
+        [data-theme="dark"] .form-select {
+            background-color: var(--bg-secondary);
+            color: var(--text-primary);
+            border-color: var(--border-color);
+        }
+        
+        [data-theme="dark"] .form-control:focus,
+        [data-theme="dark"] .form-select:focus {
+            background-color: var(--bg-secondary);
+            color: var(--text-primary);
+            border-color: #6ea8fe;
+        }
+        
+        [data-theme="dark"] .modal-content {
+            background-color: var(--bg-card);
+            color: var(--text-primary);
+        }
+        
+        [data-theme="dark"] .modal-header,
+        [data-theme="dark"] .modal-footer {
+            border-color: var(--border-color);
+        }
+        
+        [data-theme="dark"] .btn-close {
+            filter: invert(1);
+        }
+
+        [data-theme="dark"] .btn-outline-primary {
+            color: #6ea8fe;
+            border-color: #6ea8fe;
+        }
+
+        [data-theme="dark"] .btn-outline-primary:hover {
+            background-color: #6ea8fe;
+            color: #000;
+        }
+
+        .loading-spinner {
+            display: inline-block;
+            width: 1rem;
+            height: 1rem;
+            border: 2px solid currentColor;
+            border-radius: 50%;
+            border-top-color: transparent;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .metric-trend {
+            font-size: 0.875rem;
+            margin-top: 0.25rem;
+        }
+
+        .trend-up { color: #28a745; }
+        .trend-down { color: #dc3545; }
+
+        .app-status {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 0.5rem;
+        }
+
+        .status-online { background-color: #28a745; }
+        .status-stopped { background-color: #dc3545; }
+        .status-error { background-color: #ffc107; }
+
+        .fade-in {
+            animation: fadeIn 0.5s ease-in;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .notification {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            min-width: 300px;
+            z-index: 9999;
+        }
+        
+        /* Override Bootstrap table backgrounds */
+        [data-theme="dark"] .table,
+        [data-theme="dark"] .table > thead > tr > th,
+        [data-theme="dark"] .table > tbody > tr > th,
+        [data-theme="dark"] .table > tfoot > tr > th,
+        [data-theme="dark"] .table > thead > tr > td,
+        [data-theme="dark"] .table > tbody > tr > td,
+        [data-theme="dark"] .table > tfoot > tr > td {
+            background-color: transparent !important;
+            color: var(--text-primary) !important;
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg">
+        <div class="container-fluid">
+            <span class="navbar-brand text-primary">
+                <i class="bi bi-server"></i> Mac Mini Server Dashboard
+            </span>
+            <div class="d-flex align-items-center">
+                <span class="text-secondary me-3" id="time"></span>
+                <button class="btn btn-theme" onclick="toggleTheme()" title="Cambiar tema">
+                    <i class="bi bi-moon-stars-fill" id="theme-icon"></i>
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container-fluid mt-3">
+        <!-- Métricas del Sistema -->
+        <div class="row mb-4">
+            <div class="col-lg-3 col-md-6 mb-3">
+                <div class="card metric-card text-center">
+                    <div class="card-body">
+                        <h6 class="text-secondary mb-2">CPU</h6>
+                        <div class="status-badge text-primary" id="cpu">
+                            <span class="loading-spinner"></span>
+                        </div>
+                        <div class="metric-trend" id="cpu-trend"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-lg-3 col-md-6 mb-3">
+                <div class="card metric-card text-center">
+                    <div class="card-body">
+                        <h6 class="text-secondary mb-2">Memoria RAM</h6>
+                        <div class="status-badge text-info" id="memory">
+                            <span class="loading-spinner"></span>
+                        </div>
+                        <div class="metric-trend" id="memory-trend"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-lg-3 col-md-6 mb-3">
+                <div class="card metric-card text-center">
+                    <div class="card-body">
+                        <h6 class="text-secondary mb-2">Almacenamiento</h6>
+                        <div class="status-badge text-warning" id="disk">
+                            <span class="loading-spinner"></span>
+                        </div>
+                        <div class="metric-trend" id="disk-trend"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-lg-3 col-md-6 mb-3">
+                <div class="card metric-card text-center">
+                    <div class="card-body">
+                        <h6 class="text-secondary mb-2">Uptime</h6>
+                        <div class="status-badge text-success" id="uptime">
+                            <span class="loading-spinner"></span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tabs para diferentes secciones -->
+        <ul class="nav nav-tabs mb-3" role="tablist">
+            <li class="nav-item">
+                <a class="nav-link active" data-bs-toggle="tab" href="#apps">
+                    <i class="bi bi-app-indicator"></i> Aplicaciones
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link" data-bs-toggle="tab" href="#databases">
+                    <i class="bi bi-database"></i> Bases de Datos
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link" data-bs-toggle="tab" href="#domains">
+                    <i class="bi bi-globe"></i> Dominios
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link" data-bs-toggle="tab" href="#logs">
+                    <i class="bi bi-terminal"></i> Logs
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link" data-bs-toggle="tab" href="#projects">
+                    <i class="bi bi-folder-symlink"></i> Proyectos
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link" data-bs-toggle="tab" href="#backups">
+                    <i class="bi bi-archive"></i> Backups
+                </a>
+            </li>
+        </ul>
+
+        <div class="tab-content">
+            <!-- Tab Aplicaciones -->
+            <div class="tab-pane fade show active" id="apps">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0">Aplicaciones en Ejecución</h5>
+                        <button class="btn btn-success btn-sm" onclick="showDeployModal()">
+                            <i class="bi bi-cloud-upload"></i> Deploy desde GitHub
+                        </button>
+                    </div>
+                    <div class="card-body">
+                        <div class="table-responsive">
+                            <table class="table table-hover">
+                                <thead>
+                                    <tr>
+                                        <th>Estado</th>
+                                        <th>Nombre</th>
+                                        <th>Tipo</th>
+                                        <th>Puerto</th>
+                                        <th>CPU</th>
+                                        <th>RAM</th>
+                                        <th>Uptime</th>
+                                        <th>Acciones</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="apps-table">
+                                    <tr>
+                                        <td colspan="8" class="text-center text-secondary">
+                                            <span class="loading-spinner"></span> Cargando aplicaciones...
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tab Bases de Datos -->
+            <div class="tab-pane fade" id="databases">
+                <div class="row">
+                    <div class="col-md-3">
+                        <div class="card">
+                            <div class="card-header">
+                                <h6 class="mb-0">Bases de Datos</h6>
+                            </div>
+                            <div class="card-body p-0">
+                                <div class="db-tree" id="db-list">
+                                    <div class="text-center p-3">
+                                        <span class="loading-spinner"></span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-9">
+                        <div class="card">
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <h6 class="mb-0" id="db-content-title">Selecciona una base de datos</h6>
+                                <div id="db-actions" style="display: none;">
+                                    <button class="btn btn-sm btn-primary" onclick="exportTable()">
+                                        <i class="bi bi-download"></i> Exportar CSV
+                                    </button>
+                                    <button class="btn btn-sm btn-warning" onclick="backupDatabase()">
+                                        <i class="bi bi-archive"></i> Backup
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="card-body">
+                                <div id="db-content">
+                                    <p class="text-center text-secondary">
+                                        Selecciona una base de datos del panel izquierdo
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tab Dominios -->
+            <div class="tab-pane fade" id="domains">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0">Dominios y Subdominios</h5>
+                        <button class="btn btn-primary btn-sm" onclick="showAddDomainModal()">
+                            <i class="bi bi-plus-circle"></i> Agregar Subdominio
+                        </button>
+                    </div>
+                    <div class="card-body">
+                        <div class="row" id="domains-grid">
+                            <div class="col-12 text-center">
+                                <span class="loading-spinner"></span> Cargando dominios...
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tab Proyectos -->
+            <div class="tab-pane fade" id="projects">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">Gestión de Proyectos</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row" id="projects-list">
+                            <div class="col-12 text-center">
+                                <span class="loading-spinner"></span> Cargando proyectos...
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tab Logs -->
+            <div class="tab-pane fade" id="logs">
+                <div class="card">
+                    <div class="card-header">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <h5 class="mb-0">Logs del Sistema</h5>
+                            </div>
+                            <div class="col-md-6">
+                                <select class="form-select" id="log-source" onchange="changeLogSource()">
+                                    <option value="system">Sistema</option>
+                                    <option value="nginx">Nginx</option>
+                                    <option value="pm2">PM2</option>
+                                    <option value="docker">Docker</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="card-body p-0">
+                        <div class="terminal" id="logs-output">
+                            <div class="text-center">
+                                <span class="loading-spinner"></span> Conectando a logs...
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tab Backups -->
+            <div class="tab-pane fade" id="backups">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0">Sistema de Backups</h5>
+                        <button class="btn btn-success btn-sm" onclick="createBackup()">
+                            <i class="bi bi-plus-circle"></i> Crear Backup Manual
+                        </button>
+                    </div>
+                    <div class="card-body">
+                        <div class="row mb-4">
+                            <div class="col-md-4">
+                                <div class="card bg-light">
+                                    <div class="card-body text-center">
+                                        <h6>Último Backup</h6>
+                                        <p class="mb-0" id="last-backup">--</p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="card bg-light">
+                                    <div class="card-body text-center">
+                                        <h6>Tamaño Total</h6>
+                                        <p class="mb-0" id="backup-size">--</p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="card bg-light">
+                                    <div class="card-body text-center">
+                                        <h6>Próximo Backup</h6>
+                                        <p class="mb-0" id="next-backup">--</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <h6>Historial de Backups</h6>
+                        <div class="table-responsive">
+                            <table class="table">
+                                <thead>
+                                    <tr>
+                                        <th>Fecha</th>
+                                        <th>Tipo</th>
+                                        <th>Tamaño</th>
+                                        <th>Estado</th>
+                                        <th>Acciones</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="backup-history">
+                                    <tr>
+                                        <td colspan="5" class="text-center">
+                                            <span class="loading-spinner"></span> Cargando historial...
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Deploy GitHub -->
+    <div class="modal fade" id="deployModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Deploy desde GitHub</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="deployForm">
+                        <div class="mb-3">
+                            <label class="form-label">URL del Repositorio</label>
+                            <input type="text" class="form-control" id="repoUrl" placeholder="https://github.com/usuario/repo" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Nombre de la Aplicación</label>
+                            <input type="text" class="form-control" id="appName" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Puerto</label>
+                            <input type="number" class="form-control" id="appPort" value="3000" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Subdominio (opcional)</label>
+                            <input type="text" class="form-control" id="subdomain" placeholder="app">
+                            <small class="text-muted">Resultará en: subdomain.lisbontiles.com</small>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Tipo de Aplicación</label>
+                            <select class="form-select" id="appType">
+                                <option value="node">Node.js</option>
+                                <option value="python">Python</option>
+                                <option value="docker">Docker</option>
+                            </select>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="button" class="btn btn-success" onclick="deployApp()">
+                        <i class="bi bi-rocket-takeoff"></i> Deploy
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Agregar Dominio -->
+    <div class="modal fade" id="domainModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Agregar Subdominio</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="domainForm">
+                        <div class="mb-3">
+                            <label class="form-label">Dominio Principal</label>
+                            <select class="form-select" id="parentDomainSelect" required onchange="updateSubdomainPreview()">
+                                <option value="">Seleccionar dominio...</option>
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Subdominio</label>
+                            <div class="input-group">
+                                <input type="text" class="form-control" id="subdomainName" placeholder="api, app, admin..." required onkeyup="updateSubdomainPreview()">
+                                <span class="input-group-text" id="domainSuffix">.dominio.com</span>
+                            </div>
+                            <small class="text-muted">Resultado: <span id="fullDomainPreview">subdominio.dominio.com</span></small>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Aplicación</label>
+                            <select class="form-select" id="domainApp" required>
+                                <option value="">Seleccionar aplicación...</option>
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Puerto</label>
+                            <input type="number" class="form-control" id="domainPort" placeholder="3000" required>
+                            <small class="text-muted">Puerto donde corre la aplicación localmente</small>
+                        </div>
+                        <input type="hidden" id="domainZoneId">
+                    </form>
+                    <script>
+                        function updateSubdomainPreview() {
+                            const domain = document.getElementById('parentDomainSelect').value;
+                            const subdomain = document.getElementById('subdomainName').value || 'subdominio';
+                            document.getElementById('domainSuffix').textContent = domain ? `.${domain}` : '.dominio.com';
+                            document.getElementById('fullDomainPreview').textContent = domain ? `${subdomain}.${domain}` : 'subdominio.dominio.com';
+                        }
+                    </script>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="button" class="btn btn-primary" onclick="addDomain()">
+                        <i class="bi bi-plus-circle"></i> Agregar
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Notificaciones -->
+    <div id="notifications"></div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="/js/dashboard.js"></script>
+    <script src="/js/domains-filter.js"></script>
+    <script src="/js/domains.js"></script>
+    <script src="/js/projects.js"></script>
+    <script src="/js/dark-mode-helper.js"></script>
+</body>
+</html>
