@@ -709,9 +709,9 @@ async function showDeployConfigModal(projectId) {
                             <div class="mb-3">
                                 <label for="domain" class="form-label">Dominio</label>
                                 <select class="form-select" id="domain" onchange="updateDomainPreview()">
-                                    <option value="lisbontiles.com">lisbontiles.com</option>
-                                    <option value="lisbontiles.net">lisbontiles.net</option>
-                                    <option value="vimasero.com">vimasero.com</option>
+                                    <option value="lisbontiles.com" ${(!currentDomain || currentDomain.includes('lisbontiles.com')) ? 'selected' : ''}>lisbontiles.com</option>
+                                    <option value="lisbontiles.net" ${currentDomain && currentDomain.includes('lisbontiles.net') ? 'selected' : ''}>lisbontiles.net</option>
+                                    <option value="vimasero.com" ${currentDomain && currentDomain.includes('vimasero.com') ? 'selected' : ''}>vimasero.com</option>
                                 </select>
                                 <div class="form-text">Selecciona el dominio principal para tu aplicación</div>
                             </div>
@@ -795,6 +795,9 @@ async function showDeployConfigModal(projectId) {
     // Cargar puertos en uso y configurar eventos
     loadPortsInUse();
     setupPortSuggestions();
+    
+    // Inicializar el preview del dominio
+    updateDomainPreview();
     
     // Si hay un checkbox de mantener puerto actual, configurar el evento
     if (currentPort) {
@@ -2188,4 +2191,25 @@ async function confirmDeleteProject(projectId) {
         console.error('Error eliminando proyecto:', error);
         showNotification(`Error al eliminar: ${error.message}`, 'error');
     }
+}
+
+// Función para actualizar preview del dominio en el modal de deploy
+function updateDomainPreview() {
+    const domainSelect = document.getElementById('domain');
+    const subdomainInput = document.getElementById('subdomain');
+    const domainSuffix = document.getElementById('domainSuffix');
+    const urlPreview = document.getElementById('urlPreview');
+    
+    if (!domainSelect || !subdomainInput || !domainSuffix || !urlPreview) {
+        return;
+    }
+    
+    const selectedDomain = domainSelect.value;
+    const subdomain = subdomainInput.value.trim() || '[subdominio]';
+    
+    // Actualizar el sufijo del dominio
+    domainSuffix.textContent = `.${selectedDomain}`;
+    
+    // Actualizar el preview de la URL
+    urlPreview.innerHTML = `URL final: <strong>https://${subdomain}.${selectedDomain}</strong>`;
 }

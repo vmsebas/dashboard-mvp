@@ -1,9 +1,13 @@
+require('dotenv').config();
+
 const express = require('express');
 const { exec, spawn } = require('child_process');
 const util = require('util');
 const path = require('path');
 const fs = require('fs');
 const fsPromises = require('fs').promises;
+const basicAuth = require('express-basic-auth');
+
 const app = express();
 const server = require('http').createServer(app);
 const io = require('socket.io')(server);
@@ -18,9 +22,32 @@ async function getProjectPath(projectId) {
     return project ? project.path : null;
 }
 
-// Middleware
-app.use(express.static('public'));
+// Configurar Basic Auth para proteger el dashboard
+const authMiddleware = basicAuth({
+    users: { 
+        'admin': process.env.ADMIN_PASSWORD || 'dashboard123',
+        'mini-server': process.env.USER_PASSWORD || 'server2025'
+    },
+    challenge: true,
+    realm: 'Mac Mini Server Dashboard',
+    unauthorizedResponse: (req) => {
+        return 'Acceso denegado al Dashboard del Servidor'
+    }
+});
+
+// Middleware para archivos estáticos y JSON
 app.use(express.json());
+
+// Proteger archivos estáticos con autenticación
+app.use(authMiddleware, express.static('public'));
+
+// Ruta para verificar autenticación
+app.get('/api/auth/check', authMiddleware, (req, res) => {
+    res.json({
+        authenticated: true,
+        user: req.auth.user
+    });
+});
 
 // Socket.io para logs en tiempo real
 io.on('connection', (socket) => {
@@ -72,8 +99,14 @@ function streamLogs(socket, source, app) {
     });
 }
 
+// Router para APIs protegidas
+const apiRouter = express.Router();
+
+// Proteger todas las rutas de la API con Basic Auth
+apiRouter.use(authMiddleware);
+
 // API: Puertos en uso
-app.get('/api/system/ports', async (req, res) => {
+apiRouter.get('/system/ports', async (req, res) => {
     try {
         const { stdout } = await execPromise(
             `lsof -i -P | grep LISTEN | grep -E ":(3[0-9]{3}|[4-9][0-9]{3})" | awk '{print $9}' | cut -d: -f2 | sort -nu`
@@ -91,7 +124,7 @@ app.get('/api/system/ports', async (req, res) => {
 });
 
 // API: Estado del sistema mejorado
-app.get('/api/system/status', async (req, res) => {
+apiRouter.get('/system/status', async (req, res) => {
     try {
         // CPU
         const { stdout: cpuUsage } = await execPromise(
@@ -146,7 +179,7 @@ app.get('/api/system/status', async (req, res) => {
 });
 
 // API: Estado de aplicaciones (PM2 + Docker)
-app.get('/api/apps/status', async (req, res) => {
+apiRouter.get('/apps/status', async (req, res) => {
     try {
         // Cargar registro de aplicaciones para obtener puertos
         const appsRegistry = {};
@@ -201,7 +234,7 @@ app.get('/api/apps/status', async (req, res) => {
 });
 
 // API: Registro de aplicaciones
-app.get('/api/apps/registry', async (req, res) => {
+apiRouter.get('/apps/registry', async (req, res) => {
     try {
         const registryPath = '/Users/mini-server/server-config/apps-registry.json';
         if (fs.existsSync(registryPath)) {
@@ -217,7 +250,7 @@ app.get('/api/apps/registry', async (req, res) => {
 });
 
 // API: Control de aplicaciones
-app.post('/api/apps/:app/control', async (req, res) => {
+apiRouter.post('/apps/:app/control', async (req, res) => {
     const { app } = req.params;
     const { action, type } = req.body;
     
@@ -241,7 +274,7 @@ app.post('/api/apps/:app/control', async (req, res) => {
 });
 
 // API: Deploy desde GitHub
-app.post('/api/apps/deploy', async (req, res) => {
+apiRouter.post('/apps/deploy', async (req, res) => {
     const { repoUrl, appName, appPort, subdomain, appType } = req.body;
     
     try {
@@ -271,7 +304,7 @@ app.post('/api/apps/deploy', async (req, res) => {
 });
 
 // API: Lista de bases de datos
-app.get('/api/databases/list', async (req, res) => {
+apiRouter.get('/databases/list', async (req, res) => {
     try {
         // PostgreSQL
         let pgDbs = [];
@@ -299,7 +332,7 @@ app.get('/api/databases/list', async (req, res) => {
 });
 
 // API: Tablas de una base de datos
-app.get('/api/databases/:db/tables', async (req, res) => {
+apiRouter.get('/databases/:db/tables', async (req, res) => {
     const { db } = req.params;
     const { type } = req.query;
     
@@ -323,7 +356,7 @@ app.get('/api/databases/:db/tables', async (req, res) => {
 });
 
 // API: Datos de una tabla
-app.get('/api/databases/:db/table/:table', async (req, res) => {
+apiRouter.get('/databases/:db/table/:table', async (req, res) => {
     const { db, table } = req.params;
     const { type } = req.query;
     
@@ -388,7 +421,7 @@ app.get('/api/databases/:db/table/:table', async (req, res) => {
 });
 
 // API: Exportar tabla a CSV
-app.post('/api/databases/export', async (req, res) => {
+apiRouter.post('/databases/export', async (req, res) => {
     const { database, table, type } = req.body;
     
     try {
@@ -415,7 +448,7 @@ app.post('/api/databases/export', async (req, res) => {
 });
 
 // API: Backup de base de datos
-app.post('/api/databases/backup', async (req, res) => {
+apiRouter.post('/databases/backup', async (req, res) => {
     const { database, type } = req.body;
     
     try {
@@ -440,7 +473,7 @@ app.post('/api/databases/backup', async (req, res) => {
 });
 
 // API: Lista de dominios
-app.get('/api/domains/list', async (req, res) => {
+apiRouter.get('/domains/list', async (req, res) => {
     try {
         const domainsFile = '/Users/mini-server/server-config/domains.json';
         const data = await fsPromises.readFile(domainsFile, 'utf8').catch(() => '{"domains":[]}');
@@ -466,7 +499,7 @@ app.get('/api/domains/list', async (req, res) => {
 });
 
 // API: Agregar dominio
-app.post('/api/domains/add', async (req, res) => {
+apiRouter.post('/domains/add', async (req, res) => {
     const { subdomain, app, port, zoneId, domainName } = req.body;
     
     try {
@@ -546,7 +579,7 @@ server {
 });
 
 // API: Eliminar dominio
-app.delete('/api/domains/:domain', async (req, res) => {
+apiRouter.delete('/domains/:domain', async (req, res) => {
     const { domain } = req.params;
     
     try {
@@ -623,7 +656,7 @@ app.delete('/api/domains/:domain', async (req, res) => {
 });
 
 // API: Información de backups
-app.get('/api/backups/info', async (req, res) => {
+apiRouter.get('/backups/info', async (req, res) => {
     try {
         const backupDir = '/Users/mini-server/backups';
         
@@ -665,7 +698,7 @@ app.get('/api/backups/info', async (req, res) => {
 });
 
 // API: Crear backup manual
-app.post('/api/backups/create', async (req, res) => {
+apiRouter.post('/backups/create', async (req, res) => {
     try {
         const timestamp = new Date().toISOString().replace(/:/g, '-');
         const backupDir = '/Users/mini-server/backups/manual';
@@ -695,7 +728,7 @@ app.post('/api/backups/create', async (req, res) => {
 });
 
 // API: Lista de proyectos disponibles
-app.get('/api/projects/list', async (req, res) => {
+apiRouter.get('/projects/list', async (req, res) => {
     try {
         // Usar el escáner automático de proyectos
         const { scanAllProjects } = require('/Users/mini-server/server-config/project-scanner.js');
@@ -794,7 +827,7 @@ app.get('/api/projects/list', async (req, res) => {
 });
 
 // API: Cerrar proyecto (Usando script universal)
-app.post('/api/projects/:projectId/close', async (req, res) => {
+apiRouter.post('/projects/:projectId/close', async (req, res) => {
     const { projectId } = req.params;
     
     try {
@@ -943,7 +976,7 @@ app.post('/api/projects/:projectId/close', async (req, res) => {
 });
 
 // API: Deploy proyecto
-app.post('/api/projects/:projectId/deploy', async (req, res) => {
+apiRouter.post('/projects/:projectId/deploy', async (req, res) => {
     const { projectId } = req.params;
     const { subdomain, domain, port } = req.body;
     
@@ -1036,7 +1069,7 @@ app.post('/api/projects/:projectId/deploy', async (req, res) => {
 });
 
 // API: Iniciar proyecto (development)
-app.post('/api/projects/:projectId/start', async (req, res) => {
+apiRouter.post('/projects/:projectId/start', async (req, res) => {
     const { projectId } = req.params;
     const { mode = 'analyze' } = req.body; // Por defecto, analizar primero
     
@@ -1141,7 +1174,7 @@ app.post('/api/projects/:projectId/start', async (req, res) => {
 });
 
 // API: Iniciar proyecto en modo desarrollo remoto
-app.post('/api/projects/:projectId/start-remote', async (req, res) => {
+apiRouter.post('/projects/:projectId/start-remote', async (req, res) => {
     const { projectId } = req.params;
     const { remoteUser = 'mini-server' } = req.body;
     
@@ -1204,7 +1237,7 @@ app.post('/api/projects/:projectId/start-remote', async (req, res) => {
 });
 
 // API: Obtener información de desarrollo remoto
-app.get('/api/projects/:projectId/remote-dev', async (req, res) => {
+apiRouter.get('/projects/:projectId/remote-dev', async (req, res) => {
     const { projectId } = req.params;
     
     try {
@@ -1252,7 +1285,7 @@ fi
 });
 
 // API: Obtener historial de operaciones (todos)
-app.get('/api/projects/history', async (req, res) => {
+apiRouter.get('/projects/history', async (req, res) => {
     const { limit = 50 } = req.query;
     
     try {
@@ -1273,7 +1306,7 @@ app.get('/api/projects/history', async (req, res) => {
 });
 
 // API: Obtener historial de operaciones (por tipo)
-app.get('/api/projects/history/:type', async (req, res) => {
+apiRouter.get('/projects/history/:type', async (req, res) => {
     const { type } = req.params;
     const { limit = 50 } = req.query;
     
@@ -1298,7 +1331,7 @@ app.get('/api/projects/history/:type', async (req, res) => {
 });
 
 // API: Obtener archivos MD de un proyecto
-app.get('/api/projects/:projectId/docs', async (req, res) => {
+apiRouter.get('/projects/:projectId/docs', async (req, res) => {
     const { projectId } = req.params;
     
     try {
@@ -1367,7 +1400,7 @@ app.get('/api/projects/:projectId/docs', async (req, res) => {
 });
 
 // API: Estadísticas de operaciones
-app.get('/api/projects/stats', async (req, res) => {
+apiRouter.get('/projects/stats', async (req, res) => {
     try {
         const stats = {
             totalProjects: 0,
@@ -1743,7 +1776,7 @@ function getProjectType(projectPath) {
 }
 
 // API: Obtener información de un proyecto
-app.get('/api/projects/:projectId/info', async (req, res) => {
+apiRouter.get('/projects/:projectId/info', async (req, res) => {
     const { projectId } = req.params;
     
     try {
@@ -1788,7 +1821,7 @@ app.get('/api/projects/:projectId/info', async (req, res) => {
 });
 
 // API: Eliminar proyecto
-app.delete('/api/projects/:projectId/delete', async (req, res) => {
+apiRouter.delete('/projects/:projectId/delete', async (req, res) => {
     const { projectId } = req.params;
     
     try {
@@ -1904,7 +1937,7 @@ app.delete('/api/projects/:projectId/delete', async (req, res) => {
 });
 
 // API: Obtener repositorios de GitHub del usuario
-app.get('/api/github/repos', async (req, res) => {
+apiRouter.get('/github/repos', async (req, res) => {
     try {
         const githubToken = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
         
@@ -1944,7 +1977,7 @@ app.get('/api/github/repos', async (req, res) => {
 });
 
 // API: Clonar repositorio de GitHub
-app.post('/api/github/clone', async (req, res) => {
+apiRouter.post('/github/clone', async (req, res) => {
     const { repo } = req.body;
     
     try {
@@ -2223,6 +2256,9 @@ ${projectType === 'node' ? 'npm start' : projectType === 'python' ? 'python app.
         res.status(500).json({ error: error.message });
     }
 });
+
+// Montar el router de API
+app.use('/api', apiRouter);
 
 // Métricas en tiempo real
 setInterval(async () => {
