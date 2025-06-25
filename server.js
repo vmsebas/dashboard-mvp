@@ -971,7 +971,7 @@ app.post('/api/projects/:projectId/deploy', async (req, res) => {
         
         console.log('Ejecutando deploy:', deployCommand);
         
-        const { stdout, stderr } = await execPromise(deployCommand);
+        const { stdout, stderr } = await execPromise(deployCommand, { timeout: 300000 }); // 5 minutos timeout
         
         // Detectar si se ejecutó auto-cierre
         const autoClosed = stdout.includes('Ejecutando cierre automático') || 
@@ -1083,7 +1083,7 @@ app.post('/api/projects/:projectId/start', async (req, res) => {
         
         console.log('Preparando proyecto:', startCommand);
         
-        const { stdout, stderr } = await execPromise(startCommand);
+        const { stdout, stderr } = await execPromise(startCommand, { timeout: 180000 }); // 3 minutos timeout
         
         // Extraer información relevante del output
         const portMatch = stdout.match(/Puerto:\s*(\d+)/);
