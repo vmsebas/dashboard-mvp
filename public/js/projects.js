@@ -88,9 +88,14 @@ function renderProjects() {
                     </div>
 
                     <div class="d-grid gap-2">
-                        <button class="btn btn-primary btn-sm" onclick="showProjectDocs('${project.id}')">
-                            <i class="bi bi-file-earmark-text"></i> Ver Documentación
-                        </button>
+                        <div class="btn-group" role="group">
+                            <button class="btn btn-info btn-sm" onclick="showProjectInfo('${project.id}')">
+                                <i class="bi bi-info-circle"></i> Información
+                            </button>
+                            <button class="btn btn-primary btn-sm" onclick="showProjectDocs('${project.id}')">
+                                <i class="bi bi-file-earmark-text"></i> Documentación
+                            </button>
+                        </div>
                         <div class="btn-group" role="group">
                             <button class="btn btn-outline-success btn-sm" onclick="startProject('${project.id}')"
                                     title="Iniciar proyecto en modo desarrollo">
@@ -790,6 +795,130 @@ function showNotification(message, type = 'info') {
             notification.remove();
         }
     }, 5000);
+}
+
+// Función para mostrar información del proyecto
+function showProjectInfo(projectId) {
+    const project = projects.find(p => p.id === projectId);
+    if (!project) {
+        showNotification('Proyecto no encontrado', 'error');
+        return;
+    }
+    
+    const modalHtml = `
+        <div class="modal fade" id="projectInfoModal" tabindex="-1">
+            <div class="modal-dialog modal-lg">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">
+                            <i class="bi bi-info-circle"></i> Información del Proyecto: ${project.name}
+                        </h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <h6>Detalles Generales</h6>
+                                <ul class="list-unstyled">
+                                    <li><strong>Nombre:</strong> ${project.name}</li>
+                                    <li><strong>Tipo:</strong> ${project.type}</li>
+                                    <li><strong>Tecnología:</strong> ${project.tech || 'N/A'}</li>
+                                    <li><strong>Versión:</strong> ${project.currentVersion || 'Sin versión'}</li>
+                                    <li><strong>Estado:</strong> <span class="badge ${getStatusBadge(project.status)}">${getStatusText(project.status)}</span></li>
+                                </ul>
+                            </div>
+                            <div class="col-md-6">
+                                <h6>Configuración</h6>
+                                <ul class="list-unstyled">
+                                    <li><strong>Git:</strong> ${project.hasGit ? '✅ Configurado' : '❌ No configurado'}</li>
+                                    <li><strong>GitHub:</strong> ${project.hasRemote ? '✅ Conectado' : '❌ Sin remote'}</li>
+                                    <li><strong>CLAUDE.md:</strong> ${project.hasClaude ? '✅ Existe' : '⚠️ No existe'}</li>
+                                    <li><strong>PM2:</strong> ${project.pm2Status || 'No configurado'}</li>
+                                    <li><strong>Docker:</strong> ${project.hasDocker ? '✅ Dockerfile encontrado' : '❌ Sin Docker'}</li>
+                                </ul>
+                            </div>
+                        </div>
+                        
+                        <hr>
+                        
+                        <div class="row mt-3">
+                            <div class="col-12">
+                                <h6>Ubicación</h6>
+                                <div class="bg-light p-2 rounded">
+                                    <code>${project.path}</code>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        ${project.description ? `
+                            <div class="row mt-3">
+                                <div class="col-12">
+                                    <h6>Descripción</h6>
+                                    <p>${project.description}</p>
+                                </div>
+                            </div>
+                        ` : ''}
+                        
+                        ${project.lastActivity ? `
+                            <div class="row mt-3">
+                                <div class="col-12">
+                                    <h6>Última Actividad</h6>
+                                    <p class="text-muted">
+                                        ${new Date(project.lastActivity).toLocaleString('es-ES')}
+                                    </p>
+                                </div>
+                            </div>
+                        ` : ''}
+                        
+                        ${project.remoteUrl ? `
+                            <div class="row mt-3">
+                                <div class="col-12">
+                                    <h6>GitHub URL</h6>
+                                    <div class="input-group">
+                                        <input type="text" class="form-control" value="${project.remoteUrl}" readonly>
+                                        <button class="btn btn-outline-secondary" onclick="copyToClipboard('${project.remoteUrl}')">
+                                            <i class="bi bi-clipboard"></i> Copiar
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        ` : ''}
+                        
+                        <div class="row mt-3">
+                            <div class="col-12">
+                                <h6>Comandos Útiles</h6>
+                                <div class="bg-dark text-light p-3 rounded">
+                                    <code>
+                                        cd ${project.path}<br>
+                                        ${project.type === 'Node.js' ? 'npm install<br>npm start' : ''}
+                                        ${project.type === 'Python' ? 'pip install -r requirements.txt<br>python app.py' : ''}
+                                        ${project.type === 'Docker' ? 'docker-compose up -d' : ''}
+                                    </code>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
+                        <button type="button" class="btn btn-primary" onclick="showProjectDocs('${project.id}')" data-bs-dismiss="modal">
+                            <i class="bi bi-file-earmark-text"></i> Ver Documentación
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    // Remover modal existente si lo hay
+    const existingModal = document.getElementById('projectInfoModal');
+    if (existingModal) existingModal.remove();
+    
+    // Agregar nuevo modal
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+    
+    // Mostrar modal
+    const modal = new bootstrap.Modal(document.getElementById('projectInfoModal'));
+    modal.show();
 }
 
 // Función para mostrar documentación MD del proyecto
