@@ -10,6 +10,14 @@ const io = require('socket.io')(server);
 
 const execPromise = util.promisify(exec);
 
+// Función helper para obtener la ruta de un proyecto de manera genérica
+async function getProjectPath(projectId) {
+    const { scanAllProjects } = require('/Users/mini-server/server-config/project-scanner.js');
+    const projects = await scanAllProjects();
+    const project = projects.find(p => p.id === projectId);
+    return project ? project.path : null;
+}
+
 // Middleware
 app.use(express.static('public'));
 app.use(express.json());
@@ -632,32 +640,16 @@ app.post('/api/backups/create', async (req, res) => {
 // API: Lista de proyectos disponibles
 app.get('/api/projects/list', async (req, res) => {
     try {
-        const projects = [
-            {
-                id: 'iva-compensator',
-                name: 'IVA Compensator',
-                path: '/Users/mini-server/production/node-apps/iva-compensator',
-                type: 'python-flask',
-                status: 'active',
-                description: 'Sistema de compensación de IVA'
-            },
-            {
-                id: 'migestpro',
-                name: 'MiGestPro',
-                path: '/Users/mini-server/MiGestPro',
-                type: 'node',
-                status: 'active',
-                description: 'Sistema de gestión empresarial'
-            },
-            {
-                id: 'dashboard-mvp',
-                name: 'Dashboard MVP',
-                path: '/Users/mini-server/server-dashboard-mvp',
-                type: 'node',
-                status: 'active',
-                description: 'Panel de control del servidor'
-            }
-        ];
+        // Usar el escáner automático de proyectos
+        const { scanAllProjects } = require('/Users/mini-server/server-config/project-scanner.js');
+        let projects = await scanAllProjects();
+        
+        // Filtrar solo proyectos que queremos mostrar (excluir el dashboard mismo)
+        projects = projects.filter(p => 
+            p.id !== 'server-dashboard-mvp' && 
+            p.id !== 'server-config' &&
+            !p.path.includes('node_modules')
+        );
 
         // Verificar estado real de cada proyecto
         for (let project of projects) {
@@ -750,14 +742,8 @@ app.post('/api/projects/:projectId/close', async (req, res) => {
     const { projectId } = req.params;
     
     try {
-        // Mapeo de proyectos
-        const projectPaths = {
-            'iva-compensator': '/Users/mini-server/production/node-apps/iva-compensator',
-            'migestpro': '/Users/mini-server/MiGestPro',
-            'dashboard-mvp': '/Users/mini-server/server-dashboard-mvp'
-        };
-
-        const projectPath = projectPaths[projectId];
+        // Obtener ruta del proyecto de manera genérica
+        const projectPath = await getProjectPath(projectId);
         if (!projectPath) {
             return res.status(404).json({ error: 'Proyecto no encontrado' });
         }
@@ -906,14 +892,8 @@ app.post('/api/projects/:projectId/deploy', async (req, res) => {
     const { subdomain, port } = req.body;
     
     try {
-        // Mapeo de proyectos
-        const projectPaths = {
-            'iva-compensator': '/Users/mini-server/production/node-apps/iva-compensator',
-            'migestpro': '/Users/mini-server/MiGestPro',
-            'dashboard-mvp': '/Users/mini-server/server-dashboard-mvp'
-        };
-
-        const projectPath = projectPaths[projectId];
+        // Obtener ruta del proyecto de manera genérica
+        const projectPath = await getProjectPath(projectId);
         if (!projectPath) {
             return res.status(404).json({ error: 'Proyecto no encontrado' });
         }
@@ -956,14 +936,8 @@ app.post('/api/projects/:projectId/start', async (req, res) => {
     const { mode = 'analyze' } = req.body; // Por defecto, analizar primero
     
     try {
-        // Mapeo de proyectos
-        const projectPaths = {
-            'iva-compensator': '/Users/mini-server/production/node-apps/iva-compensator',
-            'migestpro': '/Users/mini-server/MiGestPro',
-            'dashboard-mvp': '/Users/mini-server/server-dashboard-mvp'
-        };
-
-        const projectPath = projectPaths[projectId];
+        // Obtener ruta del proyecto de manera genérica
+        const projectPath = await getProjectPath(projectId);
         if (!projectPath) {
             return res.status(404).json({ error: 'Proyecto no encontrado' });
         }
@@ -1067,14 +1041,8 @@ app.post('/api/projects/:projectId/start-remote', async (req, res) => {
     const { remoteUser = 'mini-server' } = req.body;
     
     try {
-        // Mapeo de proyectos
-        const projectPaths = {
-            'iva-compensator': '/Users/mini-server/production/node-apps/iva-compensator',
-            'migestpro': '/Users/mini-server/MiGestPro',
-            'dashboard-mvp': '/Users/mini-server/server-dashboard-mvp'
-        };
-
-        const projectPath = projectPaths[projectId];
+        // Obtener ruta del proyecto de manera genérica
+        const projectPath = await getProjectPath(projectId);
         if (!projectPath) {
             return res.status(404).json({ error: 'Proyecto no encontrado' });
         }

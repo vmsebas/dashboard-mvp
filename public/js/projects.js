@@ -16,10 +16,126 @@ async function loadProjects() {
         const data = await response.json();
         projects = data.projects;
         renderProjects();
+        updateGlobalNotifications();
+        updateSyncSummary();
     } catch (error) {
         console.error('Error cargando proyectos:', error);
         showNotification('Error cargando proyectos', 'error');
     }
+}
+
+// Función para actualizar notificaciones globales
+function updateGlobalNotifications() {
+    const container = document.getElementById('global-notifications');
+    const notifications = [];
+    
+    // Analizar todos los proyectos
+    projects.forEach(project => {
+        if (project.gitStatus) {
+            const alerts = [];
+            
+            if (project.gitStatus.needsCommit) {
+                alerts.push(`${project.gitStatus.changedFiles} archivo${project.gitStatus.changedFiles > 1 ? 's' : ''} sin commitear`);
+            }
+            
+            if (project.gitStatus.needsPush) {
+                alerts.push(`${project.gitStatus.unpushedCommits} commit${project.gitStatus.unpushedCommits > 1 ? 's' : ''} sin push`);
+            }
+            
+            if (project.gitStatus.needsRedeploy && project.gitStatus.isDeployed) {
+                alerts.push('necesita re-deploy');
+            }
+            
+            if (alerts.length > 0) {
+                notifications.push({
+                    project: project.name,
+                    projectId: project.id,
+                    alerts: alerts,
+                    type: project.gitStatus.needsRedeploy ? 'danger' : project.gitStatus.needsPush ? 'warning' : 'info'
+                });
+            }
+        }
+    });
+    
+    // Limpiar contenedor
+    container.innerHTML = '';
+    
+    // Si hay notificaciones, mostrarlas
+    if (notifications.length > 0) {
+        const alertHtml = `
+            <div class="alert alert-warning alert-dismissible fade show d-flex align-items-center" role="alert">
+                <div class="flex-grow-1">
+                    <h5 class="alert-heading mb-2">
+                        <i class="bi bi-exclamation-triangle-fill me-2"></i>
+                        ¡Tienes proyectos con cambios pendientes!
+                    </h5>
+                    <div class="row">
+                        ${notifications.map(notif => `
+                            <div class="col-md-4 mb-2">
+                                <div class="d-flex align-items-center">
+                                    <i class="bi bi-folder-fill text-${notif.type} me-2"></i>
+                                    <div>
+                                        <strong>${notif.project}:</strong>
+                                        <small class="d-block">${notif.alerts.join(', ')}</small>
+                                    </div>
+                                </div>
+                                <div class="mt-1">
+                                    <button class="btn btn-sm btn-outline-primary" onclick="startProject('${notif.projectId}')">
+                                        <i class="bi bi-eye"></i> Revisar
+                                    </button>
+                                    ${notif.type === 'danger' ? `
+                                        <button class="btn btn-sm btn-danger" onclick="deployProject('${notif.projectId}')">
+                                            <i class="bi bi-arrow-repeat"></i> Re-deploy
+                                        </button>
+                                    ` : ''}
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>
+        `;
+        
+        container.innerHTML = alertHtml;
+        
+        // También actualizar el título de la página para llamar la atención
+        const totalAlerts = notifications.reduce((sum, n) => sum + n.alerts.length, 0);
+        document.title = `(${totalAlerts}) Mac Mini Server Dashboard`;
+    } else {
+        // Sin notificaciones, título normal
+        document.title = 'Mac Mini Server Dashboard';
+    }
+}
+
+// Función para actualizar el resumen de sincronización
+function updateSyncSummary() {
+    let totalProjects = projects.length;
+    let syncedProjects = 0;
+    let pendingCommits = 0;
+    let needsDeploy = 0;
+    
+    projects.forEach(project => {
+        if (project.gitStatus) {
+            if (!project.gitStatus.needsCommit && !project.gitStatus.needsPush) {
+                syncedProjects++;
+            }
+            if (project.gitStatus.needsCommit || project.gitStatus.needsPush) {
+                pendingCommits++;
+            }
+            if (project.gitStatus.needsRedeploy) {
+                needsDeploy++;
+            }
+        } else {
+            syncedProjects++; // Si no tiene git, lo consideramos sincronizado
+        }
+    });
+    
+    // Actualizar los contadores
+    document.getElementById('total-projects').textContent = totalProjects;
+    document.getElementById('synced-projects').textContent = syncedProjects;
+    document.getElementById('pending-commits').textContent = pendingCommits;
+    document.getElementById('needs-deploy').textContent = needsDeploy;
 }
 
 function renderProjects() {

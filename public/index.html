@@ -310,6 +310,21 @@
         @keyframes spin {
             to { transform: rotate(360deg); }
         }
+        
+        .metric-mini {
+            padding: 10px;
+            text-align: center;
+        }
+        
+        .metric-mini .metric-value {
+            font-size: 2rem;
+            font-weight: bold;
+        }
+        
+        .metric-mini .metric-label {
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+        }
 
         .metric-trend {
             font-size: 0.875rem;
@@ -375,6 +390,11 @@
             </div>
         </div>
     </nav>
+
+    <!-- Banner de notificaciones globales -->
+    <div id="global-notifications" class="container-fluid mt-2">
+        <!-- Las notificaciones se insertan dinámicamente aquí -->
+    </div>
 
     <div class="container-fluid mt-3">
         <!-- Métricas del Sistema -->
@@ -569,6 +589,37 @@
                         <h5 class="mb-0">Gestión de Proyectos</h5>
                     </div>
                     <div class="card-body">
+                        <!-- Panel de Sincronización Rápida -->
+                        <div class="alert alert-info mb-4" id="sync-summary">
+                            <h6 class="alert-heading"><i class="bi bi-speedometer"></i> Resumen de Sincronización</h6>
+                            <div class="row text-center mt-3">
+                                <div class="col-md-3">
+                                    <div class="metric-mini">
+                                        <div class="metric-value" id="total-projects">0</div>
+                                        <div class="metric-label">Proyectos Totales</div>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="metric-mini text-success">
+                                        <div class="metric-value" id="synced-projects">0</div>
+                                        <div class="metric-label">Sincronizados</div>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="metric-mini text-warning">
+                                        <div class="metric-value" id="pending-commits">0</div>
+                                        <div class="metric-label">Con Cambios</div>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="metric-mini text-danger">
+                                        <div class="metric-value" id="needs-deploy">0</div>
+                                        <div class="metric-label">Necesitan Deploy</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
                         <div class="row" id="projects-list">
                             <div class="col-12 text-center">
                                 <span class="loading-spinner"></span> Cargando proyectos...
