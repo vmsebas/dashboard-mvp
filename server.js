@@ -644,9 +644,8 @@ app.get('/api/projects/list', async (req, res) => {
         const { scanAllProjects } = require('/Users/mini-server/server-config/project-scanner.js');
         let projects = await scanAllProjects();
         
-        // Filtrar solo proyectos que queremos mostrar (excluir el dashboard mismo)
+        // Filtrar solo proyectos que queremos mostrar
         projects = projects.filter(p => 
-            p.id !== 'server-dashboard-mvp' && 
             p.id !== 'server-config' &&
             !p.path.includes('node_modules')
         );
