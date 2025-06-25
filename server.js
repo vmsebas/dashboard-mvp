@@ -1125,10 +1125,23 @@ app.get('/api/projects/:projectId/docs', async (req, res) => {
     const { projectId } = req.params;
     
     try {
-        // Encontrar el proyecto
-        const allProjects = await getAllProjects();
-        const project = allProjects.find(p => p.id === projectId);
+        // Mapeo de proyectos (mismo que usa la API de lista)
+        const projectPaths = {
+            'iva-compensator': {
+                path: '/Users/mini-server/production/node-apps/iva-compensator',
+                name: 'IVA Compensator'
+            },
+            'migestpro': {
+                path: '/Users/mini-server/MiGestPro',
+                name: 'MiGestPro'
+            },
+            'dashboard-mvp': {
+                path: '/Users/mini-server/server-dashboard-mvp',
+                name: 'Dashboard MVP'
+            }
+        };
         
+        const project = projectPaths[projectId];
         if (!project) {
             return res.status(404).json({ error: 'Proyecto no encontrado' });
         }
