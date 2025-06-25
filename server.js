@@ -945,7 +945,7 @@ app.post('/api/projects/:projectId/close', async (req, res) => {
 // API: Deploy proyecto
 app.post('/api/projects/:projectId/deploy', async (req, res) => {
     const { projectId } = req.params;
-    const { subdomain, port } = req.body;
+    const { subdomain, domain, port } = req.body;
     
     try {
         // Obtener ruta del proyecto de manera genérica
@@ -962,9 +962,12 @@ app.post('/api/projects/:projectId/deploy', async (req, res) => {
             });
         }
         
-        // Ejecutar script de deploy
+        // Dominio por defecto si no se especifica
+        const selectedDomain = domain || 'lisbontiles.com';
+        
+        // Ejecutar script de deploy con el dominio
         const deployScript = '/Users/mini-server/project-management/scripts/project-deploy.sh';
-        const deployCommand = `"${deployScript}" "${projectPath}" "${subdomain || projectId}" "${port}"`;
+        const deployCommand = `"${deployScript}" "${projectPath}" "${subdomain || projectId}" "${port}" "${selectedDomain}"`;
         
         console.log('Ejecutando deploy:', deployCommand);
         
@@ -990,7 +993,7 @@ app.post('/api/projects/:projectId/deploy', async (req, res) => {
             output: stdout,
             error: stderr,
             timestamp: new Date().toISOString(),
-            deployUrl: subdomain ? `https://${subdomain}.lisbontiles.com` : null,
+            deployUrl: `https://${subdomain || projectId}.${selectedDomain}`,
             localUrl: port ? `http://localhost:${port}` : null,
             autoClosed: autoClosed,
             newVersion: newVersion
@@ -1758,6 +1761,122 @@ app.get('/api/projects/:projectId/info', async (req, res) => {
         });
     } catch (error) {
         res.status(500).json({ error: error.message });
+    }
+});
+
+// API: Eliminar proyecto
+app.delete('/api/projects/:projectId/delete', async (req, res) => {
+    const { projectId } = req.params;
+    
+    try {
+        // Obtener ruta del proyecto
+        const projectPath = await getProjectPath(projectId);
+        if (!projectPath) {
+            return res.status(404).json({ error: 'Proyecto no encontrado' });
+        }
+        
+        const projectName = path.basename(projectPath);
+        
+        console.log(`Eliminando proyecto ${projectId} en ${projectPath}...`);
+        
+        // 1. Detener proceso PM2 si existe
+        try {
+            // Intentar con el nombre del proyecto
+            await execPromise(`pm2 delete ${projectName}`);
+            console.log(`Proceso PM2 ${projectName} detenido y eliminado`);
+        } catch {
+            // Intentar con el ID del proyecto
+            try {
+                await execPromise(`pm2 delete ${projectId}`);
+                console.log(`Proceso PM2 ${projectId} detenido y eliminado`);
+            } catch {
+                console.log('No se encontró proceso PM2 para este proyecto');
+            }
+        }
+        
+        // 2. Detener contenedor Docker si existe
+        try {
+            await execPromise(`docker stop ${projectName} && docker rm ${projectName}`);
+            console.log(`Contenedor Docker ${projectName} detenido y eliminado`);
+        } catch {
+            console.log('No se encontró contenedor Docker para este proyecto');
+        }
+        
+        // 3. Eliminar configuración de Nginx
+        const nginxFiles = [
+            `/opt/homebrew/etc/nginx/servers/${projectName}.conf`,
+            `/opt/homebrew/etc/nginx/servers/${projectId}.conf`,
+            `/usr/local/etc/nginx/sites-available/${projectName}.conf`,
+            `/usr/local/etc/nginx/sites-enabled/${projectName}.conf`
+        ];
+        
+        for (const nginxFile of nginxFiles) {
+            try {
+                await execPromise(`rm -f "${nginxFile}"`);
+                console.log(`Archivo Nginx eliminado: ${nginxFile}`);
+            } catch {
+                // Archivo no existe, continuar
+            }
+        }
+        
+        // Recargar Nginx
+        try {
+            await execPromise('brew services reload nginx || nginx -s reload');
+            console.log('Nginx recargado');
+        } catch {
+            console.log('No se pudo recargar Nginx');
+        }
+        
+        // 4. Eliminar entrada del registro de aplicaciones
+        const appsRegistry = '/Users/mini-server/server-config/apps-registry.json';
+        try {
+            const registryData = JSON.parse(await fsPromises.readFile(appsRegistry, 'utf8'));
+            
+            // Buscar y eliminar por nombre o ID
+            for (const [key, value] of Object.entries(registryData.apps)) {
+                if (key === projectId || key === projectName || value.path === projectPath) {
+                    delete registryData.apps[key];
+                    console.log(`Entrada eliminada del registro: ${key}`);
+                    break;
+                }
+            }
+            
+            await fsPromises.writeFile(appsRegistry, JSON.stringify(registryData, null, 2));
+        } catch (e) {
+            console.log('No se pudo actualizar el registro de aplicaciones:', e);
+        }
+        
+        // 5. Hacer backup antes de eliminar (opcional)
+        const backupDir = `/Users/mini-server/backups/deleted-projects`;
+        const timestamp = new Date().toISOString().replace(/:/g, '-');
+        const backupPath = `${backupDir}/${projectName}_${timestamp}.tar.gz`;
+        
+        try {
+            await execPromise(`mkdir -p "${backupDir}"`);
+            await execPromise(`tar -czf "${backupPath}" -C "$(dirname "${projectPath}")" "$(basename "${projectPath}")"`);
+            console.log(`Backup creado en: ${backupPath}`);
+        } catch (e) {
+            console.log('No se pudo crear backup:', e);
+        }
+        
+        // 6. Eliminar carpeta del proyecto
+        await execPromise(`rm -rf "${projectPath}"`);
+        console.log(`Carpeta del proyecto eliminada: ${projectPath}`);
+        
+        res.json({
+            success: true,
+            project: projectId,
+            deletedPath: projectPath,
+            backupPath: backupPath || null,
+            message: `Proyecto ${projectId} eliminado exitosamente`
+        });
+        
+    } catch (error) {
+        console.error('Error eliminando proyecto:', error);
+        res.status(500).json({ 
+            error: error.message,
+            project: projectId
+        });
     }
 });
 

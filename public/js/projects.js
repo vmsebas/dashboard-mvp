@@ -248,10 +248,14 @@ function renderProjects() {
                         </button>
                     </div>
                 </div>
-                <div class="card-footer">
+                <div class="card-footer d-flex justify-content-between align-items-center">
                     <small class="text-muted">
                         <i class="bi bi-folder"></i> ${project.path}
                     </small>
+                    <button class="btn btn-danger btn-sm" onclick="deleteProject('${project.id}')" 
+                            title="Eliminar proyecto completamente">
+                        <i class="bi bi-trash"></i>
+                    </button>
                 </div>
             </div>
         </div>
@@ -703,13 +707,23 @@ async function showDeployConfigModal(projectId) {
                         
                         <form id="deployConfigForm">
                             <div class="mb-3">
+                                <label for="domain" class="form-label">Dominio</label>
+                                <select class="form-select" id="domain" onchange="updateDomainPreview()">
+                                    <option value="lisbontiles.com">lisbontiles.com</option>
+                                    <option value="lisbontiles.net">lisbontiles.net</option>
+                                    <option value="vimasero.com">vimasero.com</option>
+                                </select>
+                                <div class="form-text">Selecciona el dominio principal para tu aplicación</div>
+                            </div>
+                            <div class="mb-3">
                                 <label for="subdomain" class="form-label">Subdominio</label>
                                 <div class="input-group">
                                     <input type="text" class="form-control" id="subdomain" 
-                                           placeholder="${projectId}" value="${currentDomain ? currentDomain.split('.')[0] : projectId}">
-                                    <span class="input-group-text">.lisbontiles.com</span>
+                                           placeholder="${projectId}" value="${currentDomain ? currentDomain.split('.')[0] : projectId}"
+                                           oninput="updateDomainPreview()">
+                                    <span class="input-group-text" id="domainSuffix">.lisbontiles.com</span>
                                 </div>
-                                <div class="form-text">URL final: https://[subdominio].lisbontiles.com</div>
+                                <div class="form-text" id="urlPreview">URL final: https://[subdominio].lisbontiles.com</div>
                             </div>
                             <div class="mb-3">
                                 <label for="port" class="form-label">Puerto <span class="text-danger">*</span></label>
@@ -879,6 +893,7 @@ function getSuggestedPort() {
 }
 
 async function executeDeploy(projectId) {
+    const domain = document.getElementById('domain').value;
     const subdomainInput = document.getElementById('subdomain');
     const subdomain = subdomainInput.value.trim() || projectId;
     const port = document.getElementById('port').value.trim();
@@ -912,14 +927,14 @@ async function executeDeploy(projectId) {
         if (hasUncommittedChanges) {
             showNotification('Cerrando proyecto automáticamente antes del deploy...', 'info');
         }
-        showNotification('Deployando proyecto...', 'info');
+        showNotification(`Deployando proyecto en ${subdomain}.${domain}...`, 'info');
         
         const response = await fetch(`/api/projects/${projectId}/deploy`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ subdomain, port })
+            body: JSON.stringify({ subdomain, domain, port })
         });
         
         const result = await response.json();
@@ -1171,6 +1186,15 @@ function showNotification(message, type = 'info') {
             notification.remove();
         }
     }, 5000);
+}
+
+// Función para actualizar la vista previa del dominio
+function updateDomainPreview() {
+    const domain = document.getElementById('domain').value;
+    const subdomain = document.getElementById('subdomain').value || '[subdominio]';
+    
+    document.getElementById('domainSuffix').textContent = `.${domain}`;
+    document.getElementById('urlPreview').textContent = `URL final: https://${subdomain}.${domain}`;
 }
 
 // Función para mostrar información del proyecto
@@ -2050,4 +2074,118 @@ function showCloneResult(result) {
     // Mostrar modal
     const modal = new bootstrap.Modal(document.getElementById('cloneResultModal'));
     modal.show();
+}
+
+// Función para eliminar proyecto
+async function deleteProject(projectId) {
+    const project = projects.find(p => p.id === projectId);
+    if (!project) {
+        showNotification('Proyecto no encontrado', 'error');
+        return;
+    }
+    
+    // Modal de confirmación con más detalles
+    const modalHtml = `
+        <div class="modal fade" id="deleteConfirmModal" tabindex="-1">
+            <div class="modal-dialog">
+                <div class="modal-content">
+                    <div class="modal-header bg-danger text-white">
+                        <h5 class="modal-title">
+                            <i class="bi bi-exclamation-triangle"></i> Confirmar Eliminación
+                        </h5>
+                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="alert alert-danger">
+                            <strong>⚠️ Esta acción es IRREVERSIBLE</strong>
+                        </div>
+                        
+                        <p>¿Estás seguro de que quieres eliminar el proyecto <strong>${project.name}</strong>?</p>
+                        
+                        <div class="bg-light p-3 rounded mb-3">
+                            <h6>Esto eliminará:</h6>
+                            <ul class="mb-0">
+                                <li>La carpeta completa del proyecto en: <code>${project.path}</code></li>
+                                <li>Configuración de PM2/Docker (si existe)</li>
+                                <li>Configuración de Nginx (si existe)</li>
+                                <li>El proceso en ejecución (si está activo)</li>
+                            </ul>
+                        </div>
+                        
+                        ${project.hasGit && project.hasRemote ? `
+                            <div class="alert alert-info">
+                                <i class="bi bi-info-circle"></i> 
+                                <strong>Nota:</strong> El proyecto tiene GitHub configurado. Podrás clonarlo de nuevo desde GitHub si es necesario.
+                            </div>
+                        ` : `
+                            <div class="alert alert-warning">
+                                <i class="bi bi-exclamation-triangle"></i> 
+                                <strong>¡Advertencia!</strong> Este proyecto NO está en GitHub. Si lo eliminas, perderás todo el código.
+                            </div>
+                        `}
+                        
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="confirmDelete">
+                            <label class="form-check-label" for="confirmDelete">
+                                Entiendo que esta acción eliminará permanentemente el proyecto
+                            </label>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                        <button type="button" class="btn btn-danger" onclick="confirmDeleteProject('${projectId}')" id="deleteBtn" disabled>
+                            <i class="bi bi-trash"></i> Eliminar Proyecto
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    // Remover modal existente si lo hay
+    const existingModal = document.getElementById('deleteConfirmModal');
+    if (existingModal) existingModal.remove();
+    
+    // Agregar nuevo modal
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+    
+    // Configurar checkbox
+    document.getElementById('confirmDelete').addEventListener('change', function() {
+        document.getElementById('deleteBtn').disabled = !this.checked;
+    });
+    
+    // Mostrar modal
+    const modal = new bootstrap.Modal(document.getElementById('deleteConfirmModal'));
+    modal.show();
+}
+
+// Función para confirmar y ejecutar eliminación
+async function confirmDeleteProject(projectId) {
+    // Cerrar modal
+    const modal = bootstrap.Modal.getInstance(document.getElementById('deleteConfirmModal'));
+    modal.hide();
+    
+    try {
+        showNotification('Eliminando proyecto...', 'info');
+        
+        const response = await fetch(`/api/projects/${projectId}/delete`, {
+            method: 'DELETE',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        const result = await response.json();
+        
+        if (!response.ok) throw new Error(result.error);
+        
+        showNotification(`Proyecto ${projectId} eliminado exitosamente`, 'success');
+        
+        // Recargar lista de proyectos
+        setTimeout(loadProjects, 1000);
+        
+    } catch (error) {
+        console.error('Error eliminando proyecto:', error);
+        showNotification(`Error al eliminar: ${error.message}`, 'error');
+    }
 }
