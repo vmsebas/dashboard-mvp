@@ -1074,6 +1074,189 @@ app.post('/api/projects/:projectId/start', async (req, res) => {
     }
 });
 
+// API: Obtener historial de operaciones (todos)
+app.get('/api/projects/history', async (req, res) => {
+    const { limit = 50 } = req.query;
+    
+    try {
+        const historyData = await getHistoryData(null, limit);
+        res.json({
+            success: true,
+            type: 'all',
+            count: historyData.all.length,
+            data: historyData
+        });
+    } catch (error) {
+        console.error('Error leyendo historial:', error);
+        res.status(500).json({ 
+            error: error.message,
+            success: false
+        });
+    }
+});
+
+// API: Obtener historial de operaciones (por tipo)
+app.get('/api/projects/history/:type', async (req, res) => {
+    const { type } = req.params;
+    const { limit = 50 } = req.query;
+    
+    try {
+        const historyData = await getHistoryData(type, limit);
+        const result = type && historyData[type] ? historyData[type] : historyData;
+        
+        res.json({
+            success: true,
+            type: type || 'all',
+            count: Array.isArray(result) ? result.length : Object.values(result).flat().length,
+            data: result
+        });
+        
+    } catch (error) {
+        console.error('Error leyendo historial:', error);
+        res.status(500).json({ 
+            error: error.message,
+            success: false
+        });
+    }
+});
+
+// API: Estadísticas de operaciones
+app.get('/api/projects/stats', async (req, res) => {
+    try {
+        const stats = {
+            totalProjects: 0,
+            totalOperations: 0,
+            operationsByType: {
+                deploy: 0,
+                start: 0,
+                close: 0
+            },
+            projectActivity: {},
+            recentActivity: [],
+            lastWeek: {
+                deploy: 0,
+                start: 0,
+                close: 0
+            }
+        };
+        
+        // Obtener historial completo
+        const historyResponse = await fetch('http://localhost:8888/api/projects/history');
+        const historyData = await historyResponse.json();
+        
+        if (historyData.success && historyData.data.all) {
+            const entries = historyData.data.all;
+            stats.totalOperations = entries.length;
+            
+            // Fecha límite para "última semana"
+            const weekAgo = new Date();
+            weekAgo.setDate(weekAgo.getDate() - 7);
+            
+            // Procesar entradas
+            const projects = new Set();
+            
+            entries.forEach(entry => {
+                projects.add(entry.project);
+                stats.operationsByType[entry.type]++;
+                
+                // Actividad por proyecto
+                if (!stats.projectActivity[entry.project]) {
+                    stats.projectActivity[entry.project] = {
+                        deploy: 0,
+                        start: 0,
+                        close: 0,
+                        total: 0,
+                        lastActivity: entry.timestamp
+                    };
+                }
+                stats.projectActivity[entry.project][entry.type]++;
+                stats.projectActivity[entry.project].total++;
+                
+                // Última semana
+                if (entry.date > weekAgo) {
+                    stats.lastWeek[entry.type]++;
+                }
+            });
+            
+            stats.totalProjects = projects.size;
+            stats.recentActivity = entries.slice(0, 10);
+        }
+        
+        res.json({
+            success: true,
+            stats
+        });
+        
+    } catch (error) {
+        console.error('Error generando estadísticas:', error);
+        res.status(500).json({ 
+            error: error.message,
+            success: false
+        });
+    }
+});
+
+// Función auxiliar para leer datos de historial
+async function getHistoryData(filterType = null, limit = 50) {
+    const historyData = {
+        all: [],
+        deploy: [],
+        start: [],
+        close: []
+    };
+    
+    // Rutas de los archivos de log
+    const logFiles = {
+        deploy: '/Users/mini-server/project-management/logs/deploy-history.log',
+        start: '/Users/mini-server/project-management/logs/start-history.log',
+        close: '/Users/mini-server/project-management/logs/closure-history.log'
+    };
+    
+    // Leer cada archivo de log
+    for (const [logType, filePath] of Object.entries(logFiles)) {
+        try {
+            if (await fsPromises.access(filePath).then(() => true).catch(() => false)) {
+                const content = await fsPromises.readFile(filePath, 'utf8');
+                const lines = content.trim().split('\n').filter(line => line);
+                
+                const entries = lines.map(line => {
+                    // Parsear formato: [timestamp] project: info
+                    const match = line.match(/^\[([^\]]+)\]\s+([^:]+):\s+(.+)$/);
+                    if (match) {
+                        const [, timestamp, project, details] = match;
+                        return {
+                            timestamp,
+                            project: project.trim(),
+                            details: details.trim(),
+                            type: logType,
+                            date: new Date(timestamp)
+                        };
+                    }
+                    return null;
+                }).filter(Boolean);
+                
+                historyData[logType] = entries;
+                historyData.all.push(...entries);
+            }
+        } catch (error) {
+            console.log(`Log file ${logType} not found or empty`);
+        }
+    }
+    
+    // Ordenar por fecha (más reciente primero)
+    historyData.all.sort((a, b) => b.date - a.date);
+    
+    // Aplicar límite
+    const limitNum = parseInt(limit);
+    if (filterType && historyData[filterType]) {
+        historyData[filterType] = historyData[filterType].slice(0, limitNum);
+    } else {
+        historyData.all = historyData.all.slice(0, limitNum);
+    }
+    
+    return historyData;
+}
+
 // Funciones auxiliares para el cierre universal
 function generateUniversalCommitMessage(projectId, version, projectType, result) {
     const projectDescriptions = {
