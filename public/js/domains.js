@@ -219,7 +219,8 @@ async function removeDomain(subdomain, parentDomain) {
 }
 
 // Estilos adicionales para dominios
-const style = document.createElement('style');
+(function() {
+    const style = document.createElement('style');
 style.textContent = `
     .domain-group {
         animation: fadeIn 0.5s ease-in;
@@ -254,6 +255,7 @@ style.textContent = `
     }
 `;
 document.head.appendChild(style);
+})();
 
 // Exportar funciones
 window.showAddSubdomainModal = showAddSubdomainModal;

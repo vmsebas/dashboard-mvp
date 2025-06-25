@@ -270,7 +270,8 @@ function refreshHistory() {
 }
 
 // CSS para animación de carga
-const style = document.createElement('style');
+(function() {
+    const style = document.createElement('style');
 style.textContent = `
     .spin {
         animation: spin 1s linear infinite;
@@ -282,3 +283,4 @@ style.textContent = `
     }
 `;
 document.head.appendChild(style);
+})();
