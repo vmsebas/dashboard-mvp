@@ -247,6 +247,225 @@
             padding-bottom: 0.3rem;
         }
         
+        /* === NUEVOS ESTILOS UI/UX === */
+        
+        /* Tailscale indicator styles */
+        .tailscale-status {
+            margin-right: 0.5rem;
+        }
+        
+        .tailscale-status .badge {
+            font-size: 0.875rem;
+            padding: 0.35rem 0.65rem;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.25rem;
+            cursor: help;
+        }
+        
+        .tailscale-status .badge i {
+            font-size: 0.9rem;
+        }
+        
+        [data-theme="dark"] .tailscale-status .badge.bg-success {
+            background-color: #198754 !important;
+        }
+        
+        [data-theme="dark"] .tailscale-status .badge.bg-warning {
+            background-color: #664d03 !important;
+            color: #ffda6a;
+        }
+        
+        [data-theme="dark"] .tailscale-status .badge.bg-secondary {
+            background-color: #495057 !important;
+        }
+        
+        /* Estados críticos y jerarquía visual */
+        .metric-card.critical {
+            border-left: 4px solid #dc3545;
+            animation: pulse-critical 2s ease-in-out infinite;
+        }
+        
+        .metric-card.warning {
+            border-left: 4px solid #ffc107;
+        }
+        
+        @keyframes pulse-critical {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(220, 53, 69, 0.4); }
+            50% { box-shadow: 0 0 20px 5px rgba(220, 53, 69, 0.2); }
+        }
+        
+        .metric-value {
+            transition: color 0.3s ease;
+        }
+        .metric-value.warning { color: #ffc107; }
+        .metric-value.danger { color: #dc3545; }
+        
+        /* Estados vacíos */
+        .empty-state {
+            padding: 3rem 1rem;
+        }
+        
+        .empty-state i {
+            opacity: 0.3;
+        }
+        
+        /* Skeleton loaders */
+        .skeleton-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 0.375rem;
+            padding: 1rem;
+            margin-bottom: 1rem;
+        }
+        
+        .skeleton-line {
+            height: 12px;
+            background: linear-gradient(90deg, 
+                var(--bg-secondary) 25%, 
+                var(--bg-primary) 50%, 
+                var(--bg-secondary) 75%);
+            background-size: 200% 100%;
+            animation: loading 1.5s infinite;
+            border-radius: 6px;
+            margin-bottom: 0.5rem;
+        }
+        
+        .skeleton-line.short {
+            width: 60%;
+        }
+        
+        .skeleton-title {
+            height: 20px;
+            width: 40%;
+            margin-bottom: 1rem;
+        }
+        
+        @keyframes loading {
+            0% { background-position: 200% 0; }
+            100% { background-position: -200% 0; }
+        }
+        
+        /* Botones mejorados */
+        .btn-group-sm .btn {
+            padding: 0.375rem 0.75rem;
+            font-size: 0.9rem;
+        }
+        
+        /* Tooltips mejorados */
+        .btn[data-tooltip] {
+            position: relative;
+        }
+        
+        .btn[data-tooltip]::after {
+            content: attr(data-tooltip);
+            position: absolute;
+            bottom: 100%;
+            left: 50%;
+            transform: translateX(-50%) translateY(-5px);
+            background: var(--bs-dark);
+            color: white;
+            padding: 0.25rem 0.5rem;
+            border-radius: 0.25rem;
+            font-size: 0.75rem;
+            white-space: nowrap;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.2s, transform 0.2s;
+            z-index: 1000;
+        }
+        
+        .btn[data-tooltip]:hover::after {
+            opacity: 1;
+            transform: translateX(-50%) translateY(-10px);
+        }
+        
+        /* Mejoras responsive */
+        @media (max-width: 768px) {
+            .nav-tabs {
+                flex-wrap: nowrap;
+                overflow-x: auto;
+                -webkit-overflow-scrolling: touch;
+                scrollbar-width: none;
+                -ms-overflow-style: none;
+            }
+            
+            .nav-tabs::-webkit-scrollbar {
+                display: none;
+            }
+            
+            .metric-card {
+                margin-bottom: 1rem;
+            }
+            
+            .status-badge {
+                font-size: 1.5rem !important;
+            }
+            
+            /* Tablas a cards en móvil */
+            .table-responsive table {
+                display: block;
+            }
+            
+            .table-responsive tbody tr {
+                display: block;
+                border: 1px solid var(--border-color);
+                margin-bottom: 0.5rem;
+                padding: 0.75rem;
+                border-radius: 0.375rem;
+                background: var(--bg-card);
+            }
+            
+            .table-responsive td {
+                display: block;
+                border: none;
+                padding: 0.25rem 0;
+            }
+            
+            .table-responsive td:before {
+                content: attr(data-label);
+                font-weight: bold;
+                display: inline-block;
+                width: 120px;
+                color: var(--text-secondary);
+            }
+        }
+        
+        /* Notificaciones mejoradas */
+        .notification {
+            box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+            border-left: 4px solid;
+        }
+        
+        .alert-info.notification {
+            border-left-color: #0dcaf0;
+        }
+        
+        .alert-success.notification {
+            border-left-color: #198754;
+        }
+        
+        .alert-warning.notification {
+            border-left-color: #ffc107;
+        }
+        
+        .alert-danger.notification {
+            border-left-color: #dc3545;
+        }
+        
+        /* Badge en tabs */
+        .nav-link .badge {
+            font-size: 0.7rem;
+            min-width: 20px;
+            padding: 0.2rem 0.4rem;
+        }
+        
+        /* Animación para actividad */
+        .activity-sparkline {
+            height: 30px;
+            overflow: hidden;
+        }
+        
         .markdown-content h4 {
             margin-top: 1.3rem;
             margin-bottom: 0.8rem;
@@ -390,6 +609,12 @@
             </span>
             <div class="d-flex align-items-center">
                 <div id="navbar-user"></div>
+                <!-- Indicador de Tailscale -->
+                <div id="tailscale-indicator" class="me-3" style="display: none;">
+                    <span class="badge bg-secondary" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Cargando estado de Tailscale...">
+                        <i class="bi bi-shield-lock"></i> Tailscale
+                    </span>
+                </div>
                 <span class="text-secondary me-3" id="time"></span>
                 <button class="btn btn-theme" onclick="toggleTheme()" title="Cambiar tema">
                     <i class="bi bi-moon-stars-fill" id="theme-icon"></i>
@@ -811,6 +1036,8 @@
     <script src="/socket.io/socket.io.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     
+    <!-- Utilidades compartidas - debe cargarse primero -->
+    <script src="/js/utils.js"></script>
 
     <script src="/js/dashboard.js" defer></script>
     <script src="/js/domains-filter.js" defer></script>

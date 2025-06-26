@@ -150,13 +150,13 @@ function renderHistoryTable(entries) {
                 <small>${formatDate(entry.date)}</small>
             </td>
             <td>
-                <span class="fw-bold">${entry.project}</span>
+                <span class="fw-bold">${DashboardUtils.escapeHtml(entry.project)}</span>
             </td>
             <td>
                 <span class="badge ${getOperationBadge(entry.type)}">${getOperationText(entry.type)}</span>
             </td>
             <td>
-                <small class="text-muted">${entry.details}</small>
+                <small class="text-muted">${DashboardUtils.escapeHtml(entry.details)}</small>
             </td>
         </tr>
     `).join('');
@@ -178,8 +178,8 @@ function renderRecentActivity(entries) {
                 <i class="bi ${getOperationIcon(entry.type)} text-${getOperationColor(entry.type)}"></i>
             </div>
             <div class="flex-grow-1">
-                <div class="fw-bold small">${entry.project}</div>
-                <div class="text-muted small">${entry.details}</div>
+                <div class="fw-bold small">${DashboardUtils.escapeHtml(entry.project)}</div>
+                <div class="text-muted small">${DashboardUtils.escapeHtml(entry.details)}</div>
             </div>
             <div class="text-end">
                 <small class="text-muted">${formatRelativeTime(entry.date)}</small>
@@ -232,28 +232,14 @@ function getOperationColor(type) {
     }
 }
 
+// Usar función de utils.js
 function formatDate(date) {
-    return new Date(date).toLocaleString('es-ES', {
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit'
-    });
+    return DashboardUtils.formatDate(date);
 }
 
+// Usar función de utils.js
 function formatRelativeTime(date) {
-    const now = new Date();
-    const diff = now - new Date(date);
-    const minutes = Math.floor(diff / 60000);
-    const hours = Math.floor(minutes / 60);
-    const days = Math.floor(hours / 24);
-    
-    if (minutes < 1) return 'Ahora';
-    if (minutes < 60) return `${minutes}m`;
-    if (hours < 24) return `${hours}h`;
-    if (days < 7) return `${days}d`;
-    return formatDate(date).split(' ')[0];
+    return DashboardUtils.formatRelativeTime(date);
 }
 
 function refreshHistory() {

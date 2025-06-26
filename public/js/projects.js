@@ -3,6 +3,28 @@
 let projects = [];
 let userRepos = [];
 
+// Función para mostrar skeleton loaders
+function showProjectsSkeleton() {
+    const container = document.getElementById('projects-list');
+    if (!container) return;
+    
+    const skeleton = `
+        <div class="col-lg-4 col-md-6 mb-4">
+            <div class="skeleton-card">
+                <div class="skeleton-line skeleton-title"></div>
+                <div class="skeleton-line"></div>
+                <div class="skeleton-line short"></div>
+                <div class="d-flex gap-2 mt-3">
+                    <div class="skeleton-line" style="width: 80px; height: 30px;"></div>
+                    <div class="skeleton-line" style="width: 80px; height: 30px;"></div>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    container.innerHTML = skeleton.repeat(6);
+}
+
 // Cargar proyectos al inicializar
 document.addEventListener('DOMContentLoaded', function() {
     loadProjects();
@@ -13,12 +35,20 @@ document.addEventListener('DOMContentLoaded', function() {
 
 async function loadProjects() {
     try {
+        // Mostrar skeleton loader
+        showProjectsSkeleton();
+        
         const response = await fetch('/api/projects/list');
         const data = await response.json();
         projects = data.projects;
         renderProjects();
         updateGlobalNotifications();
         updateSyncSummary();
+        
+        // Actualizar badges en tabs
+        if (window.updateTabBadges) {
+            window.updateTabBadges();
+        }
     } catch (error) {
         console.error('Error cargando proyectos:', error);
         showNotification('Error cargando proyectos', 'error');
@@ -74,7 +104,7 @@ function updateGlobalNotifications() {
                             ${notifications.map(notif => `
                                 <div class="notification-item">
                                     <i class="bi bi-folder-fill text-${notif.type} me-1"></i>
-                                    <strong>${notif.project}:</strong>
+                                    <strong>${DashboardUtils.escapeHtml(notif.project)}:</strong>
                                     <span class="text-muted small">${notif.alerts.join(', ')}</span>
                                     <button class="btn btn-sm btn-link p-0 ms-2" onclick="startProject('${notif.projectId}')">
                                         <i class="bi bi-eye"></i>
@@ -140,11 +170,23 @@ function renderProjects() {
     
     if (projects.length === 0) {
         container.innerHTML = `
-            <div class="col-12 text-center text-secondary">
-                <i class="bi bi-folder-x" style="font-size: 3rem;"></i>
-                <p class="mt-2">No se encontraron proyectos</p>
+            <div class="col-12">
+                <div class="empty-state text-center py-5">
+                    <i class="bi bi-folder-plus display-1 text-muted"></i>
+                    <h5 class="mt-3">No hay proyectos activos</h5>
+                    <p class="text-muted">Comienza clonando un repositorio desde GitHub o creando uno nuevo</p>
+                    <div class="mt-4">
+                        <button class="btn btn-primary me-2" onclick="showCloneFromGitHubModal()">
+                            <i class="bi bi-github"></i> Clonar desde GitHub
+                        </button>
+                        <button class="btn btn-outline-primary" onclick="showNewProjectModal()">
+                            <i class="bi bi-plus-circle"></i> Nuevo Proyecto
+                        </button>
+                    </div>
+                </div>
             </div>
         `;
+        updateTabBadges(); // Actualizar badges cuando no hay proyectos
         return;
     }
 
@@ -163,17 +205,20 @@ function renderProjects() {
             }
         }
         
+        // Añadir clase para badges
+        const needsAttention = project.gitStatus?.needsCommit || project.gitStatus?.needsPush || project.gitStatus?.needsRedeploy;
+        
         return `
         <div class="col-lg-4 col-md-6 mb-4">
-            <div class="card h-100 ${project.gitStatus?.needsRedeploy ? 'border-danger' : ''}">
+            <div class="card h-100 ${project.gitStatus?.needsRedeploy ? 'border-danger' : ''} ${needsAttention ? 'project-warning' : ''}">
                 <div class="card-header d-flex justify-content-between align-items-center">
                     <h6 class="mb-0">
-                        <i class="bi bi-folder"></i> ${project.name}
+                        <i class="bi bi-folder"></i> ${DashboardUtils.escapeHtml(project.name)}
                     </h6>
                     <span class="badge ${getStatusBadge(project.status)}">${getStatusText(project.status)}</span>
                 </div>
                 <div class="card-body">
-                    <p class="text-muted small mb-2">${project.description}</p>
+                    <p class="text-muted small mb-2">${DashboardUtils.escapeHtml(project.description || '')}</p>
                     
                     ${statusIndicators.length > 0 ? `
                         <div class="mb-2">
@@ -188,14 +233,14 @@ function renderProjects() {
                                     <i class="bi bi-tag me-1"></i>
                                     <small class="text-muted">Versión:</small>
                                 </div>
-                                <div class="fw-bold">${project.currentVersion || 'Sin versión'}</div>
+                                <div class="fw-bold">${DashboardUtils.escapeHtml(project.currentVersion || 'Sin versión')}</div>
                             </div>
                             <div class="col-6">
                                 <div class="d-flex align-items-center">
                                     <i class="bi bi-gear me-1"></i>
                                     <small class="text-muted">Tipo:</small>
                                 </div>
-                                <div class="fw-bold">${project.type}</div>
+                                <div class="fw-bold">${DashboardUtils.escapeHtml(project.type || 'Desconocido')}</div>
                             </div>
                         </div>
                     </div>
@@ -750,8 +795,21 @@ async function showDeployConfigModal(projectId) {
                             <div class="mb-3" id="portsInUse">
                                 <div class="text-muted small">Cargando puertos en uso...</div>
                             </div>
+                            <!-- Información de acceso -->
+                            <div class="alert alert-info">
+                                <i class="bi bi-globe"></i>
+                                <strong>Tu aplicación será accesible a través de:</strong>
+                                <ul class="mb-0 mt-2">
+                                    <li><i class="bi bi-house-door"></i> <strong>Local:</strong> <code>http://localhost:[puerto]</code></li>
+                                    <li id="tailscale-info-deploy-modal">
+                                        <i class="bi bi-shield-lock"></i> <strong>Tailscale:</strong> <span class="text-muted">Verificando...</span>
+                                    </li>
+                                    <li><i class="bi bi-cloud"></i> <strong>Cloudflare (opcional):</strong> Requiere túnel activo</li>
+                                </ul>
+                            </div>
+                            
                             <div class="alert alert-secondary">
-                                <i class="bi bi-info-circle"></i>
+                                <i class="bi bi-gear"></i>
                                 <strong>El deploy incluye:</strong>
                                 <ul class="mb-0 mt-2">
                                     <li>Configuración automática de Nginx</li>
@@ -798,6 +856,9 @@ async function showDeployConfigModal(projectId) {
     
     // Inicializar el preview del dominio
     updateDomainPreview();
+    
+    // Cargar información de Tailscale
+    updateTailscaleInfoInModal();
     
     // Si hay un checkbox de mantener puerto actual, configurar el evento
     if (currentPort) {
@@ -945,18 +1006,201 @@ async function executeDeploy(projectId) {
         if (!response.ok) throw new Error(result.error);
         
         // Mostrar resultado del deploy
-        showProjectDeployResult(result);
+        await showProjectDeployResult(result);
         
         // Recargar lista de proyectos
         setTimeout(loadProjects, 3000);
         
     } catch (error) {
         console.error('Error deployando proyecto:', error);
-        showNotification(`Error en deploy: ${error.message}`, 'error');
+        
+        // Analizar el tipo de error para dar mensajes más útiles
+        let userMessage = error.message;
+        let suggestions = [];
+        
+        if (error.message.includes('puerto') && error.message.includes('en uso')) {
+            userMessage = 'El puerto está ocupado por otro proceso';
+            suggestions.push('Verificar si el proyecto ya está corriendo');
+            suggestions.push('Usar un puerto diferente');
+            suggestions.push('Detener el proceso existente si es necesario');
+        } else if (error.message.includes('Command failed') && error.message.includes('project-deploy.sh')) {
+            userMessage = 'Error en el script de deployment';
+            suggestions.push('Verificar logs del servidor para más detalles');
+            suggestions.push('Verificar permisos y dependencias del proyecto');
+        }
+        
+        // Mostrar notificación mejorada con sugerencias
+        const notificationOptions = {
+            persistent: true,
+            actions: suggestions.length > 0 ? [
+                {
+                    text: 'Ver Sugerencias',
+                    style: 'info',
+                    onclick: `showDeployErrorModal('${projectId}', '${userMessage}', ${JSON.stringify(suggestions).replace(/"/g, '&quot;')})`
+                }
+            ] : []
+        };
+        
+        showNotification(`Error en deploy: ${userMessage}`, 'error', notificationOptions);
     }
 }
 
-function showProjectDeployResult(result) {
+// Mostrar modal de error con sugerencias
+function showDeployErrorModal(projectId, errorMessage, suggestions) {
+    const suggestionsHtml = suggestions.map(suggestion => `
+        <li class="mb-2">
+            <i class="bi bi-lightbulb text-warning"></i> ${suggestion}
+        </li>
+    `).join('');
+    
+    const modalHtml = `
+        <div class="modal fade" id="deployErrorModal" tabindex="-1">
+            <div class="modal-dialog modal-lg">
+                <div class="modal-content">
+                    <div class="modal-header bg-warning text-dark">
+                        <h5 class="modal-title">
+                            <i class="bi bi-exclamation-triangle"></i> Error de Deployment
+                        </h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="alert alert-danger">
+                            <h6><i class="bi bi-x-circle"></i> Error encontrado:</h6>
+                            <p class="mb-0">${errorMessage}</p>
+                        </div>
+                        
+                        <h6><i class="bi bi-lightbulb"></i> Sugerencias para resolver el problema:</h6>
+                        <ul class="list-unstyled">
+                            ${suggestionsHtml}
+                        </ul>
+                        
+                        <div class="row mt-4">
+                            <div class="col-md-6">
+                                <div class="card bg-light">
+                                    <div class="card-body">
+                                        <h6><i class="bi bi-info-circle"></i> Estado del Proyecto</h6>
+                                        <p class="small">Verifica si el proyecto ya está corriendo:</p>
+                                        <button class="btn btn-sm btn-outline-primary" onclick="checkProjectStatus('${projectId}')">
+                                            <i class="bi bi-search"></i> Verificar Estado
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="card bg-light">
+                                    <div class="card-body">
+                                        <h6><i class="bi bi-terminal"></i> Acciones Rápidas</h6>
+                                        <p class="small">Opciones para resolver el problema:</p>
+                                        <div class="btn-group-vertical w-100">
+                                            <button class="btn btn-sm btn-outline-info" onclick="showPortChecker()">
+                                                <i class="bi bi-ethernet"></i> Ver Puertos Disponibles
+                                            </button>
+                                            <button class="btn btn-sm btn-outline-warning" onclick="suggestAlternativePort('${projectId}')">
+                                                <i class="bi bi-arrow-repeat"></i> Probar Puerto Alternativo
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                            <i class="bi bi-x-lg"></i> Cerrar
+                        </button>
+                        <button type="button" class="btn btn-primary" onclick="retryDeploy('${projectId}')">
+                            <i class="bi bi-arrow-clockwise"></i> Intentar de Nuevo
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    // Remover modal existente
+    const existingModal = document.getElementById('deployErrorModal');
+    if (existingModal) existingModal.remove();
+    
+    // Agregar y mostrar modal
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+    const modal = new bootstrap.Modal(document.getElementById('deployErrorModal'));
+    modal.show();
+}
+
+// Funciones auxiliares para el modal de error
+function checkProjectStatus(projectId) {
+    showNotification('Verificando estado del proyecto...', 'info');
+    loadProjects(); // Recargar la lista para ver el estado actual
+}
+
+function showPortChecker() {
+    // Implementar verificador de puertos
+    showNotification('Verificando puertos disponibles...', 'info');
+    // Aquí podrías llamar a una API para obtener puertos disponibles
+}
+
+function suggestAlternativePort(projectId) {
+    const alternativePorts = [4500, 5200, 5500, 6200, 6500, 7200, 7500, 8200, 8500];
+    const randomPort = alternativePorts[Math.floor(Math.random() * alternativePorts.length)];
+    
+    showNotification(`Puerto sugerido: ${randomPort}. Úsalo en la configuración de deploy.`, 'info', {
+        persistent: true,
+        actions: [{
+            text: 'Copiar Puerto',
+            style: 'primary',
+            onclick: `copyToClipboard('${randomPort}')`
+        }]
+    });
+}
+
+function retryDeploy(projectId) {
+    // Cerrar modal y abrir configuración de deploy nuevamente
+    const modal = bootstrap.Modal.getInstance(document.getElementById('deployErrorModal'));
+    if (modal) modal.hide();
+    
+    setTimeout(() => {
+        deployProject(projectId);
+    }, 500);
+}
+
+async function showProjectDeployResult(result) {
+    // Obtener información fresca de Tailscale desde el servidor
+    let tailscaleHostname = 'mini-server';
+    let tailscaleSuffix = '';
+    let tailscaleActive = false;
+    let tailscaleFunnel = false;
+    
+    try {
+        const tailscaleResponse = await fetch('/api/system/tailscale');
+        if (tailscaleResponse.ok) {
+            const tailscaleData = await tailscaleResponse.json();
+            tailscaleHostname = tailscaleData.hostname || 'mini-server';
+            tailscaleSuffix = tailscaleData.magicDNSSuffix || '';
+            tailscaleActive = tailscaleData.active || false;
+            tailscaleFunnel = tailscaleData.funnel || false;
+            
+            // Actualizar también la variable global para futuro uso
+            window.tailscaleInfo = tailscaleData;
+        }
+    } catch (error) {
+        console.warn('No se pudo obtener información de Tailscale:', error);
+    }
+    
+    // Extraer puerto del resultado o de la URL local
+    let port = result.port;
+    if (!port && result.localUrl) {
+        const portMatch = result.localUrl.match(/:(\d+)$/);
+        if (portMatch) {
+            port = portMatch[1];
+        }
+    }
+    port = port || '3000';
+    
+    // Construir URL de Tailscale
+    const tailscaleUrl = tailscaleActive && tailscaleHostname && tailscaleSuffix
+        ? `https://${tailscaleHostname}.${tailscaleSuffix}:${port}`
+        : `https://${tailscaleHostname}:${port}`;
+    
     const modalHtml = `
         <div class="modal fade" id="projectDeployResultModal" tabindex="-1">
             <div class="modal-dialog modal-xl">
@@ -982,12 +1226,67 @@ function showProjectDeployResult(result) {
                                 </div>
                             </div>
                             <div class="col-md-6">
-                                <div class="card bg-light">
+                                <div class="card bg-primary text-white">
                                     <div class="card-body">
                                         <h6><i class="bi bi-globe"></i> URLs de Acceso</h6>
-                                        ${result.deployUrl ? `<p class="mb-1"><strong>Producción:</strong> <a href="${result.deployUrl}" target="_blank">${result.deployUrl}</a></p>` : ''}
-                                        ${result.localUrl ? `<p class="mb-1"><strong>Local:</strong> <a href="${result.localUrl}" target="_blank">${result.localUrl}</a></p>` : ''}
-                                        <p class="mb-0"><strong>SSL:</strong> <span class="badge bg-success">Automático</span></p>
+                                        
+                                        <!-- URL Local -->
+                                        <div class="mb-3 bg-white bg-opacity-10 p-2 rounded">
+                                            <div class="d-flex justify-content-between align-items-center">
+                                                <div>
+                                                    <i class="bi bi-house-door"></i> <strong>Local:</strong><br>
+                                                    <code class="text-white">${result.localUrl || 'http://localhost:' + port}</code>
+                                                </div>
+                                                <button class="btn btn-sm btn-light" onclick="copyToClipboard('${result.localUrl || 'http://localhost:' + port}')">
+                                                    <i class="bi bi-clipboard"></i>
+                                                </button>
+                                            </div>
+                                        </div>
+                                        
+                                        <!-- URL Tailscale -->
+                                        ${tailscaleActive ? `
+                                        <div class="mb-3 bg-white bg-opacity-10 p-2 rounded">
+                                            <div class="d-flex justify-content-between align-items-center">
+                                                <div>
+                                                    <i class="bi bi-shield-check"></i> <strong>Tailscale VPN:</strong><br>
+                                                    <code class="text-white">${tailscaleUrl}</code>
+                                                    ${tailscaleFunnel && window.tailscaleInfo.funnelPorts?.includes(parseInt(port)) ? '<span class="badge bg-info ms-1">Funnel activo</span>' : ''}
+                                                </div>
+                                                <button class="btn btn-sm btn-light" onclick="copyToClipboard('${tailscaleUrl}')">
+                                                    <i class="bi bi-clipboard"></i>
+                                                </button>
+                                            </div>
+                                            ${!tailscaleFunnel ? '<small class="text-white-50">Requiere estar conectado a Tailscale VPN</small>' : ''}
+                                        </div>
+                                        ` : `
+                                        <div class="mb-3 bg-white bg-opacity-10 p-2 rounded">
+                                            <div class="text-white-50">
+                                                <i class="bi bi-shield-x"></i> <strong>Tailscale:</strong> No disponible
+                                                <br><small>Instala y configura Tailscale para acceso remoto seguro</small>
+                                            </div>
+                                        </div>
+                                        `}
+                                        
+                                        <!-- URL Cloudflare -->
+                                        ${result.deployUrl ? `
+                                        <div class="bg-white bg-opacity-10 p-2 rounded border border-warning">
+                                            <div class="d-flex justify-content-between align-items-start">
+                                                <div class="flex-grow-1">
+                                                    <div class="d-flex align-items-center mb-1">
+                                                        <i class="bi bi-cloud"></i> <strong>Cloudflare:</strong>
+                                                        <span class="badge bg-warning text-dark ms-2" title="Cloudflare Tunnel puede estar inestable">
+                                                            <i class="bi bi-exclamation-triangle"></i> Inestable
+                                                        </span>
+                                                    </div>
+                                                    <code class="text-white">${result.deployUrl}</code>
+                                                    <br><small class="text-warning">⚠️ Si da Error 1033, usa las URLs de arriba (más confiables)</small>
+                                                </div>
+                                                <button class="btn btn-sm btn-light ms-2" onclick="copyToClipboard('${result.deployUrl}')">
+                                                    <i class="bi bi-clipboard"></i>
+                                                </button>
+                                            </div>
+                                        </div>
+                                        ` : ''}
                                     </div>
                                 </div>
                             </div>
@@ -1122,10 +1421,28 @@ function showProjectStartResult(result) {
                             </div>
                         ` : ''}
 
-                        <div class="alert alert-secondary">
+                        <div class="alert alert-info">
                             <i class="bi bi-lightbulb"></i>
-                            <strong>Proyecto listo para desarrollo</strong><br>
-                            ${result.localUrl ? `Puedes acceder a tu aplicación en: <a href="${result.localUrl}" target="_blank">${result.localUrl}</a>` : 'El entorno está preparado para desarrollo'}
+                            <strong>URLs de Acceso al Proyecto:</strong><br>
+                            <div class="mt-2">
+                                ${result.localUrl ? `
+                                    <div class="mb-1">
+                                        🏠 <strong>Local:</strong> <code>${result.localUrl}</code>
+                                        <button class="btn btn-sm btn-outline-secondary ms-2" onclick="copyToClipboard('${result.localUrl}')">
+                                            <i class="bi bi-clipboard"></i> Copiar
+                                        </button>
+                                    </div>
+                                ` : ''}
+                                ${result.port ? `
+                                    <div class="mb-1">
+                                        🔒 <strong>Tailscale:</strong> <code>https://mini-server:${result.port}</code>
+                                        <button class="btn btn-sm btn-outline-secondary ms-2" onclick="copyToClipboard('https://mini-server:${result.port}')">
+                                            <i class="bi bi-clipboard"></i> Copiar
+                                        </button>
+                                    </div>
+                                ` : ''}
+                                ${!result.localUrl && !result.port ? 'El entorno está preparado para desarrollo' : ''}
+                            </div>
                         </div>
                     </div>
                     <div class="modal-footer">
@@ -1169,26 +1486,9 @@ async function copyToClipboard(text) {
 }
 
 // Función auxiliar para mostrar notificaciones
-function showNotification(message, type = 'info') {
-    const alertClass = type === 'error' ? 'alert-danger' : 
-                      type === 'success' ? 'alert-success' : 
-                      type === 'warning' ? 'alert-warning' : 'alert-secondary';
-    
-    const notification = document.createElement('div');
-    notification.className = `alert ${alertClass} alert-dismissible fade show notification`;
-    notification.innerHTML = `
-        ${message}
-        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-    `;
-    
-    document.getElementById('notifications').appendChild(notification);
-    
-    // Auto-eliminar después de 5 segundos
-    setTimeout(() => {
-        if (notification.parentNode) {
-            notification.remove();
-        }
-    }, 5000);
+// Usar la función de utils.js
+function showNotification(message, type) {
+    return DashboardUtils.showNotification(message, type);
 }
 
 // Función para actualizar la vista previa del dominio
@@ -2212,4 +2512,56 @@ function updateDomainPreview() {
     
     // Actualizar el preview de la URL
     urlPreview.innerHTML = `URL final: <strong>https://${subdomain}.${selectedDomain}</strong>`;
+}
+
+// Función para actualizar información de Tailscale en el modal de deploy
+async function updateTailscaleInfoInModal() {
+    const tailscaleInfo = document.getElementById('tailscale-info-deploy-modal');
+    if (!tailscaleInfo) return;
+    
+    try {
+        const response = await fetch('/api/system/tailscale');
+        if (response.ok) {
+            const data = await response.json();
+            
+            if (data.installed && data.active) {
+                const hostname = data.hostname || 'mini-server';
+                tailscaleInfo.innerHTML = `
+                    <i class="bi bi-shield-check text-success"></i> 
+                    <strong>Tailscale VPN:</strong> 
+                    <code>https://${hostname}:[puerto]</code>
+                    ${data.funnel ? '<span class="badge bg-info ms-1">Funnel disponible</span>' : ''}
+                `;
+            } else if (data.installed && !data.active) {
+                tailscaleInfo.innerHTML = `
+                    <i class="bi bi-shield-exclamation text-warning"></i> 
+                    <strong>Tailscale:</strong> 
+                    <span class="text-warning">Instalado pero inactivo</span>
+                    <br><small class="text-muted">Ejecuta: <code>tailscale up</code></small>
+                `;
+            } else {
+                tailscaleInfo.innerHTML = `
+                    <i class="bi bi-shield-x text-muted"></i> 
+                    <strong>Tailscale:</strong> 
+                    <span class="text-muted">No instalado (recomendado para acceso remoto)</span>
+                `;
+            }
+            
+            // Actualizar también la variable global
+            window.tailscaleInfo = data;
+        } else {
+            tailscaleInfo.innerHTML = `
+                <i class="bi bi-shield-x text-muted"></i> 
+                <strong>Tailscale:</strong> 
+                <span class="text-muted">No disponible</span>
+            `;
+        }
+    } catch (error) {
+        console.warn('Error obteniendo información de Tailscale:', error);
+        tailscaleInfo.innerHTML = `
+            <i class="bi bi-shield-x text-muted"></i> 
+            <strong>Tailscale:</strong> 
+            <span class="text-muted">Error verificando estado</span>
+        `;
+    }
 }

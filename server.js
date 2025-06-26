@@ -8,6 +8,11 @@ const fs = require('fs');
 const fsPromises = require('fs').promises;
 const basicAuth = require('express-basic-auth');
 
+// Módulos de seguridad y configuración
+const security = require('./security');
+const logger = require('./logger');
+const config = require('./config');
+
 const app = express();
 const server = require('http').createServer(app);
 const io = require('socket.io')(server);
@@ -24,19 +29,28 @@ async function getProjectPath(projectId) {
 
 // Configurar Basic Auth para proteger el dashboard
 const authMiddleware = basicAuth({
-    users: { 
-        'admin': process.env.ADMIN_PASSWORD || 'dashboard123',
-        'mini-server': process.env.USER_PASSWORD || 'server2025'
-    },
+    users: config.auth.users,
     challenge: true,
-    realm: 'Mac Mini Server Dashboard',
+    realm: config.auth.realm,
     unauthorizedResponse: (req) => {
-        return 'Acceso denegado al Dashboard del Servidor'
+        logger.warn('Intento de acceso no autorizado:', { ip: req.ip, url: req.url });
+        return 'Acceso denegado al Dashboard del Servidor';
     }
 });
 
 // Middleware para archivos estáticos y JSON
 app.use(express.json());
+
+// Middleware de logging
+app.use(logger.middleware());
+
+// Middleware de headers de seguridad
+app.use((req, res, next) => {
+    Object.entries(config.security.headers).forEach(([header, value]) => {
+        res.setHeader(header, value);
+    });
+    next();
+});
 
 // Proteger archivos estáticos con autenticación
 app.use(authMiddleware, express.static('public'));
@@ -49,9 +63,31 @@ app.get('/api/auth/check', authMiddleware, (req, res) => {
     });
 });
 
-// Socket.io para logs en tiempo real
+// Socket.io para logs en tiempo real con autenticación
+io.use((socket, next) => {
+    // Extraer credenciales Basic Auth del header
+    const auth = socket.handshake.headers.authorization;
+    
+    if (!auth || !auth.startsWith('Basic ')) {
+        return next(new Error('Autenticación requerida'));
+    }
+    
+    const encoded = auth.substring(6);
+    const decoded = Buffer.from(encoded, 'base64').toString();
+    const [username, password] = decoded.split(':');
+    
+    // Verificar credenciales
+    const users = config.auth.users;
+    if (users[username] && users[username] === password) {
+        socket.user = username;
+        next();
+    } else {
+        next(new Error('Credenciales inválidas'));
+    }
+});
+
 io.on('connection', (socket) => {
-    console.log('Cliente conectado');
+    console.log(`Cliente conectado: ${socket.user}`);
     
     socket.on('subscribe-logs', ({ source, app }) => {
         socket.join(`logs-${source}`);
@@ -59,7 +95,7 @@ io.on('connection', (socket) => {
     });
     
     socket.on('disconnect', () => {
-        console.log('Cliente desconectado');
+        console.log(`Cliente desconectado: ${socket.user}`);
     });
 });
 
@@ -120,6 +156,98 @@ apiRouter.get('/system/ports', async (req, res) => {
         });
     } catch (error) {
         res.json({ ports: [], count: 0 });
+    }
+});
+
+// API: Estado de Tailscale
+apiRouter.get('/system/tailscale', async (req, res) => {
+    try {
+        // Verificar si Tailscale está instalado
+        try {
+            await execPromise('which tailscale');
+        } catch {
+            return res.json({ 
+                installed: false,
+                active: false,
+                hostname: 'mini-server',
+                ip: null,
+                funnel: false
+            });
+        }
+
+        // Obtener estado de Tailscale
+        let tailscaleInfo = {
+            installed: true,
+            active: false,
+            hostname: 'mini-server',
+            ip: null,
+            funnel: false,
+            magicDNS: false,
+            exitNode: false
+        };
+
+        try {
+            // Obtener estado JSON de Tailscale
+            const { stdout: statusJson } = await execPromise('tailscale status --json');
+            const status = JSON.parse(statusJson);
+            
+            // Verificar si está activo
+            tailscaleInfo.active = status.BackendState === 'Running';
+            
+            // Obtener información del dispositivo actual
+            if (status.Self) {
+                tailscaleInfo.hostname = status.Self.DNSName?.split('.')[0] || status.Self.HostName || 'mini-server';
+                tailscaleInfo.ip = status.Self.TailscaleIPs?.[0] || null;
+                tailscaleInfo.online = status.Self.Online || false;
+                
+                // Verificar si es un exit node
+                tailscaleInfo.exitNode = status.Self.ExitNode || false;
+            }
+            
+            // Verificar MagicDNS
+            tailscaleInfo.magicDNS = status.MagicDNSSuffix ? true : false;
+            tailscaleInfo.magicDNSSuffix = status.MagicDNSSuffix || null;
+            
+            // Verificar si Funnel está habilitado
+            try {
+                const { stdout: funnelStatus } = await execPromise('tailscale funnel status 2>&1');
+                tailscaleInfo.funnel = !funnelStatus.includes('Funnel is not running') && 
+                                      !funnelStatus.includes('no funnel servers');
+                
+                // Si funnel está activo, obtener los puertos expuestos
+                if (tailscaleInfo.funnel) {
+                    const funnelPorts = [];
+                    const lines = funnelStatus.split('\n');
+                    lines.forEach(line => {
+                        const portMatch = line.match(/(\d+)\s+/);
+                        if (portMatch) {
+                            funnelPorts.push(parseInt(portMatch[1]));
+                        }
+                    });
+                    tailscaleInfo.funnelPorts = funnelPorts;
+                }
+            } catch {
+                // Funnel no está disponible o hay error
+                tailscaleInfo.funnel = false;
+            }
+            
+            // Obtener URL de acceso
+            if (tailscaleInfo.active && tailscaleInfo.hostname) {
+                tailscaleInfo.accessUrl = tailscaleInfo.magicDNS && tailscaleInfo.magicDNSSuffix
+                    ? `https://${tailscaleInfo.hostname}.${tailscaleInfo.magicDNSSuffix}`
+                    : `https://${tailscaleInfo.ip}`;
+            }
+            
+        } catch (error) {
+            console.error('Error obteniendo estado de Tailscale:', error);
+            // Tailscale instalado pero no configurado o con error
+        }
+        
+        res.json(tailscaleInfo);
+        
+    } catch (error) {
+        console.error('Error en API Tailscale:', error);
+        res.status(500).json({ error: error.message });
     }
 });
 
@@ -255,14 +383,27 @@ apiRouter.post('/apps/:app/control', async (req, res) => {
     const { action, type } = req.body;
     
     try {
-        let command;
-        if (type === 'pm2') {
-            command = `pm2 ${action} "${app}"`;
-        } else {
-            command = `docker ${action} "${app}"`;
+        // Sanitizar nombre de aplicación
+        const safeApp = security.sanitizeAppName(app);
+        
+        // Validar acción permitida
+        const allowedActions = {
+            pm2: ['start', 'stop', 'restart', 'delete'],
+            docker: ['start', 'stop', 'restart', 'rm']
+        };
+        
+        if (!allowedActions[type] || !allowedActions[type].includes(action)) {
+            return res.status(400).json({ error: 'Acción no permitida' });
         }
         
-        await execPromise(command);
+        // Ejecutar comando de forma segura
+        if (type === 'pm2') {
+            await security.safeExec('pm2', [action, safeApp]);
+        } else {
+            await security.safeExec('docker', [action, safeApp]);
+        }
+        
+        logger.info(`Control de aplicación: ${type} ${action} ${safeApp}`);
         
         // Notificar cambio vía socket
         io.emit('app-status-change', { app, action, type });
@@ -1824,14 +1965,31 @@ apiRouter.get('/projects/:projectId/info', async (req, res) => {
 apiRouter.delete('/projects/:projectId/delete', async (req, res) => {
     const { projectId } = req.params;
     
+    // Rate limiting para operaciones destructivas
+    if (!security.rateLimit(`delete-project-${req.ip}`, 5, 3600000)) {
+        return res.status(429).json({ error: 'Demasiados intentos de eliminación. Espere 1 hora.' });
+    }
+    
     try {
+        // Sanitizar ID del proyecto
+        const safeProjectId = security.sanitizeProjectId(projectId);
+        
         // Obtener ruta del proyecto
-        const projectPath = await getProjectPath(projectId);
+        const projectPath = await getProjectPath(safeProjectId);
         if (!projectPath) {
             return res.status(404).json({ error: 'Proyecto no encontrado' });
         }
         
-        const projectName = path.basename(projectPath);
+        // Validar que la ruta es segura
+        const safePath = security.sanitizeProjectPath(projectPath);
+        const projectName = path.basename(safePath);
+        
+        logger.event('project.delete.start', { 
+            projectId: safeProjectId, 
+            path: safePath, 
+            user: req.auth?.user,
+            ip: req.ip 
+        });
         
         console.log(`Eliminando proyecto ${projectId} en ${projectPath}...`);
         
@@ -1908,16 +2066,22 @@ apiRouter.delete('/projects/:projectId/delete', async (req, res) => {
         const backupPath = `${backupDir}/${projectName}_${timestamp}.tar.gz`;
         
         try {
-            await execPromise(`mkdir -p "${backupDir}"`);
-            await execPromise(`tar -czf "${backupPath}" -C "$(dirname "${projectPath}")" "$(basename "${projectPath}")"`);
-            console.log(`Backup creado en: ${backupPath}`);
+            await security.safeExec('mkdir', ['-p', backupDir]);
+            await security.safeExec('tar', [
+                '-czf', backupPath,
+                '-C', path.dirname(safePath),
+                path.basename(safePath)
+            ]);
+            logger.info(`Backup creado en: ${backupPath}`);
         } catch (e) {
             console.log('No se pudo crear backup:', e);
         }
         
-        // 6. Eliminar carpeta del proyecto
-        await execPromise(`rm -rf "${projectPath}"`);
-        console.log(`Carpeta del proyecto eliminada: ${projectPath}`);
+        // 6. Eliminar carpeta del proyecto de forma segura
+        await security.safeExec('rm', ['-rf', safePath], {
+            timeout: config.timeouts.longCommand
+        });
+        logger.info(`Carpeta del proyecto eliminada: ${safePath}`);
         
         res.json({
             success: true,
@@ -2286,14 +2450,33 @@ setInterval(async () => {
     }
 }, 5000);
 
+// Middleware de manejo de errores global
+app.use((err, req, res, next) => {
+    logger.error('Error no manejado:', err);
+    
+    // No exponer detalles en producción
+    const message = config.isProduction() 
+        ? 'Error interno del servidor' 
+        : err.message;
+    
+    res.status(err.status || 500).json({
+        error: message,
+        requestId: req.id || Date.now()
+    });
+});
+
 // Iniciar servidor
-const PORT = process.env.PORT || 8888;
+const PORT = config.server.port;
 
 server.listen(PORT, () => {
-    console.log(`✅ Dashboard completo ejecutándose en http://localhost:${PORT}`);
-    console.log('🌙 Modo oscuro incluido');
-    console.log('📊 Gestión completa de bases de datos');
-    console.log('🚀 Deploy desde GitHub');
-    console.log('📜 Logs en tiempo real');
-    console.log('💾 Sistema de backups');
+    logger.info(`✅ Dashboard completo ejecutándose en http://localhost:${PORT}`);
+    logger.info(`📊 Ambiente: ${config.server.env}`);
+    logger.info('🔐 Autenticación: Habilitada');
+    logger.info('🛡️  Headers de seguridad: Activos');
+    logger.info('📝 Logging: Activo en ./logs/');
+    
+    if (!config.isProduction()) {
+        console.log(`\n🌐 URL local: http://localhost:${PORT}`);
+        console.log(`👤 Usuario: admin / Contraseña: ${config.auth.users.admin === 'dashboard2025' ? 'dashboard2025 (⚠️  CAMBIAR!)' : '***'}`);
+    }
 });

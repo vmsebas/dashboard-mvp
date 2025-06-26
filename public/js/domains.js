@@ -125,7 +125,7 @@ async function loadDomains() {
         
     } catch (error) {
         console.error('Error loading domains:', error);
-        showNotification('Error al cargar dominios', 'error');
+        DashboardUtils.showNotification('Error al cargar dominios', 'error');
     }
 }
 
@@ -170,7 +170,7 @@ async function addDomain() {
     };
     
     if (!data.subdomain || !data.app || !data.port || !data.parentDomain) {
-        showNotification('Por favor completa todos los campos', 'warning');
+        DashboardUtils.showNotification('Por favor completa todos los campos', 'warning');
         return;
     }
     
@@ -183,7 +183,7 @@ async function addDomain() {
         
         const result = await response.json();
         if (result.success) {
-            showNotification(`Subdominio ${data.subdomain}.${data.parentDomain} agregado`, 'success');
+            DashboardUtils.showNotification(`Subdominio ${data.subdomain}.${data.parentDomain} agregado`, 'success');
             bootstrap.Modal.getInstance(document.getElementById('domainModal')).hide();
             form.reset();
             loadDomains();
@@ -191,7 +191,7 @@ async function addDomain() {
             throw new Error(result.error);
         }
     } catch (error) {
-        showNotification(`Error: ${error.message}`, 'error');
+        DashboardUtils.showNotification(`Error: ${error.message}`, 'error');
     }
 }
 
@@ -207,14 +207,14 @@ async function removeDomain(subdomain, parentDomain) {
         });
         
         if (response.ok) {
-            showNotification(`Subdominio ${subdomain} eliminado`, 'success');
+            DashboardUtils.showNotification(`Subdominio ${subdomain} eliminado`, 'success');
             loadDomains();
         } else {
             const error = await response.json();
             throw new Error(error.error || 'Error al eliminar dominio');
         }
     } catch (error) {
-        showNotification(`Error: ${error.message}`, 'error');
+        DashboardUtils.showNotification(`Error: ${error.message}`, 'error');
     }
 }
 
